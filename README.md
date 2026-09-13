@@ -1,0 +1,273 @@
+# Siphon
+
+[![License](https://img.shields.io/badge/License-Apache_2.0-green.svg)](LICENSE)
+
+Siphon is an **ultra-fast, distributed Safetensors loader** designed to maximize I/O throughput when moving model weights from Safetensors files to GPU memory.
+
+### Model loading benchmark on inference engines
+
+| Model | GPU | Backend | Load Time (s) | Throughput (GB/s) | Speedup |
+|---|---|---|---|---|---|
+| Qwen3-30B-A3B | 1*H200 | Safetensors   | 57.4  | 1.1 | 1x |
+| Qwen3-30B-A3B | 1*H200 | Siphon | 1.77 | 35  | <span style="color: green">**32.4x**</span> |
+| DeepSeek-R1   | 8*H200 | Safetensors   | 160  | 4.3 | 1x |
+| DeepSeek-R1   | 8*H200 | Siphon | 15.3 | 45  | <span style="color: green">**10.5x**</span> |
+
+See [Benchmark](./docs/benchmark.md) for full benchmarks.
+
+### Quickstart
+
+```python
+from siphon import safe_open
+
+tensors = {}
+with safe_open("model.safetensors", framework="pt", device=0) as f:
+    for name, tensor in f.tensors():
+        tensors[name] = tensor
+```
+
+Yielded tensors own their memory by default (`copy=True`). For zero-copy
+streaming into preallocated storage, see [Zero-copy mode](#zero-copy-mode).
+
+See [Usage](#usage) for multi-file and distributed usage.
+
+## Why Siphon?
+
+- **Fast weight loading**
+  - Direct I/O: Avoid the slow page cache allocation on cold start. Friendly for large models and tight memory budgets.
+  - Tuned I/O size and concurrency: Maximize hardware throughput.
+  - Pipelining and prefetching: Parallelize and overlap the various stages of transmission.
+- **Distributed loading**
+  - Use `torch.distributed` (NCCL) to speed up loading under any parallelism policy (TP/PP/EP/CP/DP).
+- **Multiple I/O backends**
+  - Supports multiple backends: GPUDirect Storage, Legacy Storage, and Memory-based Storage.
+
+## When to Use Siphon
+
+Siphon is recommended if **any** of the following conditions are met:
+- High storage bandwidth (>= 5 GB/s).
+- Unable to keep the model cached in host memory, for example:
+  - Limited free memory for model caching (for example, when most memory is used for KV cache offloading in LLM serving).
+  - Infrequent model loading, where Linux page cache is less effective.
+  - Model switching, where multiple models cannot be cached in memory simultaneously.
+- The model is heavily sharded (for example, TP=8), resulting in small, non-contiguous I/O per GPU.
+- Loading from `tmpfs`.
+
+
+## Installation
+
+### Requirements
+
+- GPU platforms: CUDA, ROCm
+- Framework: PyTorch
+- `URING`/`URING_BUFFERED`: Linux kernel 5.6 or newer; 5.15 or newer is recommended
+
+
+### Method 1: Install from pip
+  ```bash
+  pip install siphon
+  ```
+
+### Method 2: Build from source
+  ```bash
+  git clone https://github.com/123123213weqw/siphon.git
+  cd siphon
+  ./checkout_submodules.sh
+  pip install .
+  # For a debug build, set "DEBUG=1" before "pip"
+  ```
+
+## Usage
+
+### Multi-file loading
+
+Passing a list of files allows the backend to plan reads and provides higher throughput than making multiple calls to load single files:
+
+```python
+from siphon import safe_open
+
+files = ["model-00001-of-00002.safetensors", "model-00002-of-00002.safetensors"]
+tensors = {}
+with safe_open(files, framework="pt", device=0) as f:
+    for name, tensor in f.tensors():
+        tensors[name] = tensor
+```
+
+### Distributed loading
+
+Siphon can use a `torch.distributed` NCCL process group to coordinate loading and achieve higher throughput compared to running `safe_open` independently on each GPU.
+
+```python
+import torch
+import torch.distributed as dist
+from siphon import safe_open
+
+dist.init_process_group(backend="nccl")
+process_group = dist.GroupMember.WORLD
+
+files = ["model-00001-of-00002.safetensors", "model-00002-of-00002.safetensors"]
+tensors = {}
+with safe_open(files, framework="pt", device=torch.cuda.current_device(), process_group=process_group) as f:
+    for name, tensor in f.tensors():
+        tensors[name] = tensor
+```
+
+> **NOTE:** You can also load weights using a subgroup created via `dist.new_group`, which allows multiple subgroups to load weights independently. For example, if you have TP=8 and PP=2 (i.e., two TP groups), you can create two subgroups and load weights independently on each TP group. In cross-node (multi-machine) scenarios, loading using per-node subgroups can sometimes be faster than loading on the world group. However, for most cases, the world group is a good default choice.
+
+### Buffered I/O
+
+For regular disk files, Siphon defaults to Direct I/O to prioritize cold
+load performance. This is usually the right choice when a model is loaded once
+for a long-running workload.
+
+If the same model is loaded repeatedly within a short period, Buffered I/O can
+be faster because later reads may benefit from the page cache. Enable it with
+the `backend=BackendPolicy.BUFFERED` argument to `safe_open`, or, when
+`backend=None`, by setting the `SIPHON_BACKEND=BUFFERED` environment
+variable.
+
+### Zero-copy mode
+
+Pass `copy=False` to skip the per-tensor clone and yield views into the
+internal ring buffer:
+
+```python
+with safe_open(files, framework="pt", device=0, copy=False) as f:
+    for name, tensor in f.tensors():
+        model_param[name].copy_(tensor)
+```
+
+Two rules:
+
+1. Consume each tensor before the next is yielded — `list(f.tensors())` and
+   similar patterns silently corrupt data when `buffer_size < total_tensor_size`.
+2. Do not keep references past the `with` block — the buffer is freed on exit.
+
+A `UserWarning` fires when `copy=False` and `buffer_size < total_tensor_size`.
+Both attributes are public on the `safe_open` object.
+
+See `tests/test.py` for a full benchmark harness (TP/PP grouping, checksums, etc.).
+
+<!-- ## Performance tuning
+
+Users can specify four key parameters in `safe_open` for performance tuning:
+
+- **`buffer_size`**: The size of the GPU buffer used for tensors in bytes.
+
+- **`chunk_size`**: The size of each file I/O operation in bytes.
+
+- **`concurrency`**: The number of `MMAP`/`CUFILE` worker threads. Other
+  backends ignore it.
+
+- **`io_depth`**: The maximum number of rank-local I/O operations in flight.
+
+When set to None (the default), Siphon will automatically select a value based on the storage type for high performance. Otherwise, the user-supplied value is used.  -->
+
+### Backend selection
+
+Siphon selects an I/O backend automatically by default. You can provide
+one or more backend candidates with the `backend` argument to `safe_open`, or
+with the `SIPHON_BACKEND` environment variable when `backend=None`.
+Siphon tries the candidates in order and uses the first backend that is
+supported by the file system and available on the current system.
+
+Supported backend values are `Backend.AIO`, `Backend.AIO_BUFFERED`,
+`Backend.URING`, `Backend.URING_BUFFERED`, `Backend.CUFILE`, and
+`Backend.MMAP`. The `backend` argument accepts a single `Backend` or a list of
+`Backend`/`BackendPolicy` values:
+
+```python
+from siphon import Backend, BackendPolicy, safe_open
+
+safe_open("model.safetensors", framework="pt", device=0, backend=Backend.URING)
+safe_open("model.safetensors", framework="pt", device=0, backend=[Backend.URING, Backend.AIO])
+safe_open("model.safetensors", framework="pt", device=0, backend=BackendPolicy.BUFFERED)
+```
+
+`BackendPolicy.BUFFERED` expands to `[Backend.URING_BUFFERED,
+Backend.AIO_BUFFERED, Backend.MMAP]`. This is a good choice when you want Buffered I/O.
+
+`SIPHON_BACKEND` accepts comma-separated backend or policy names:
+
+```bash
+SIPHON_BACKEND=URING,AIO
+SIPHON_BACKEND=BUFFERED
+```
+
+Backends are used in different file-system and I/O scenarios:
+
+- **In-memory file systems** (available backends: `MMAP`, `URING_BUFFERED`,
+  `AIO_BUFFERED`): when model files are
+  stored on tmpfs or ramfs, `MMAP` provides the best compatibility and
+  performance for this case. The other backends are usually slower for
+  in-memory files.
+- **Regular file systems**: Siphon can use either Direct I/O or Buffered
+  I/O.
+  - **Direct I/O** (available backends: `AIO`, `URING`, `CUFILE`) is best when
+    a model is loaded once for a long-running
+    workload. It avoids page-cache cold-start effects and reduces page-cache
+    pollution. When choosing manually, `URING` may be faster on newer platforms.
+    `AIO` has the broadest platform compatibility. `CUFILE` requires GPUDirect
+    Storage support, and its higher throughput can be offset by cuFile
+    initialization overhead.
+  - **Buffered I/O** (available backends: `AIO_BUFFERED`, `URING_BUFFERED`,
+    `MMAP`) is best when the same model is
+    loaded repeatedly within a short period. Later reads can benefit from the
+    page cache, though the first read is usually slower than Direct I/O.
+    `URING_BUFFERED` is preferred on platforms with io_uring support;
+    `AIO_BUFFERED` provides a more compatible option, while `MMAP` is available
+    but usually not preferred.
+
+If no backend is specified, Siphon tries `[URING, AIO]` for regular disk
+files. For tmpfs/ramfs files, it uses `MMAP`. If none of the requested
+candidates can be used, Siphon raises an error listing why each candidate
+was rejected.
+
+### Environment variables
+
+Set these variables before the first `safe_open` call. An explicit `safe_open`
+argument takes precedence over its corresponding environment variable.
+
+| Variable | Description | Default |
+| --- | --- | --- |
+| `SIPHON_BACKEND` | Comma-separated backend or policy candidates, for example `URING,AIO` or `BUFFERED`. | Automatically select by filesystem type. |
+| `SIPHON_BUFFER_SIZE` | Requested logical GPU tensor ring-buffer size in bytes. It constrains `io_depth` but may be enlarged to fit the largest tensor. | Automatically determined from tensor sizes and I/O settings. |
+| `SIPHON_CHUNK_SIZE` | File I/O chunk size in bytes. | Automatically determined for the selected backend. |
+| `SIPHON_CONCURRENCY` | Number of worker threads for `MMAP` and `CUFILE`; other backends ignore it. | Automatically determined for the selected backend. |
+| `SIPHON_IO_DEPTH` | Maximum number of rank-local I/O operations in flight. Higher values can increase throughput and staging-memory usage; the maximum is 1024. | Automatically determined for the selected backend. |
+| `SIPHON_MAX_FREE_MEM_USAGE` | Maximum fraction of currently free GPU memory available to the logical device buffer. | `0.5` |
+| `SIPHON_CACHE_BUFFER` | Set to `1` to cache pinned host staging buffers across loader opens. Cached memory remains pinned until process cleanup. | `0` |
+| `SIPHON_DEBUG` | Set to `1` to print backend selection, buffer sizes, timing, and throughput diagnostics. | `0` |
+
+The I/O capacity required by a configuration is
+`round_up(chunk_size, page_size) * io_depth * world_size`. When `buffer_size`
+is omitted, Siphon chooses the larger of this value and the
+tensor-layout recommendation. When `buffer_size` and `io_depth` are both set,
+they must be compatible. When only `buffer_size` is set, Siphon reduces
+the default `io_depth` as needed. The internal device allocation includes a
+small additional alignment guard beyond the logical `buffer_size`. If the
+final logical buffer exceeds the resulting device-memory budget, opening fails
+before the native allocation is attempted.
+
+For example:
+
+```bash
+SIPHON_BACKEND=BUFFERED \
+SIPHON_IO_DEPTH=32 \
+SIPHON_DEBUG=1 python load_model.py
+```
+
+## API reference
+
+See [Build API reference](./docs/build_doc.md)
+
+<!-- ## Benchmark -->
+
+<!-- ## Roadmap
+
+- **Supporting loading to CPU**: E.g., CPU inference.
+- **Improving scalability**: E.g., Collective loading on 32+ GPUs. -->
+
+## Acknowledgments
+
+Based on [InstantTensor](https://github.com/scitix/InstantTensor) by ScitiX AI.

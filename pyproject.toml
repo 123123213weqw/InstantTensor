@@ -1,0 +1,48 @@
+[build-system]
+requires = [
+    "setuptools>=65.0",
+    "wheel",
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "siphon"
+version = "0.1.10"
+description = "An ultra-fast, distributed Safetensors loader"
+readme = { file = "README.md", content-type = "text/markdown" }
+requires-python = ">=3.9"
+license = { file = "LICENSE" }
+dependencies = [
+    "torch>=2.8.0",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development",
+    "Topic :: Software Development :: Libraries",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Programming Language :: C++",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: C++",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+[project.optional-dependencies]
+test = [
+    "numpy",
+    "safetensors",
+    "tqdm",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["siphon*"]

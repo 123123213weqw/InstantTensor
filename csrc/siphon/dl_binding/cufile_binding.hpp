@@ -1,0 +1,115 @@
+#pragma once
+
+#include <siphon/dl_binding/dl_binding_utils.hpp>
+#include <cstddef>
+#include <cstdint>
+#include <unistd.h>
+
+#define CUFILE_ERRSTR(err) \
+        (string("cuFile error code ") + std::to_string(err))
+
+namespace siphon {
+namespace cufile_binding {
+
+inline bool is_rocm = false;
+    
+// Minimal types matching cufile.h ABI
+typedef void* CUfileHandle_t;
+
+enum CUfileOpError {
+    CU_FILE_SUCCESS = 0,
+};
+
+enum CUresult {
+    CUDA_SUCCESS = 0,
+};
+
+typedef struct CUfileError {
+    CUfileOpError err; // cufile error
+    enum CUresult cu_err; // for CUDA-specific errors
+} CUfileError_t;
+
+enum CUfileFileHandleType {
+    CU_FILE_HANDLE_TYPE_OPAQUE_FD = 1, /* linux based fd    */
+    CU_FILE_HANDLE_TYPE_OPAQUE_WIN32 = 2, /* windows based handle */
+    CU_FILE_HANDLE_TYPE_USERSPACE_FS  = 3, /* userspace based FS */
+};
+
+typedef struct CUfileDescr_t {
+    CUfileFileHandleType type; /* type of file being registered */
+    union {
+        int fd;             /* Linux   */
+        void *handle;       /* Windows */
+    } handle;
+    const void *fs_ops;     /* Unused. Original type is "const CUfileFSOps_t *". file system operation table */
+} CUfileDescr_t;
+
+inline void* lib_handle = nullptr;
+
+inline CUfileError_t (*cuFileDriverOpen_fn)() = nullptr;
+inline CUfileError_t (*cuFileDriverClose_fn)() = nullptr;
+inline CUfileError_t (*cuFileHandleRegister_fn)(CUfileHandle_t *fh, CUfileDescr_t *descr) = nullptr;
+inline void (*cuFileHandleDeregister_fn)(CUfileHandle_t fh) = nullptr;
+inline CUfileError_t (*cuFileBufRegister_fn)(const void* devPtr_base, size_t size, int flags) = nullptr;
+inline CUfileError_t (*cuFileBufDeregister_fn)(const void* devPtr_base) = nullptr;
+inline ssize_t (*cuFileRead_fn)(CUfileHandle_t fh, void *bufPtr_base, size_t size, off_t file_offset, off_t devPtr_offset) = nullptr;
+
+inline bool init() {
+    if (lib_handle != nullptr) {
+        if (lib_handle == (void*)0x1) return false;
+        return true;
+    }
+
+    // Try cuFile first (NVIDIA GPUDirect Storage)
+    lib_handle = dl_binding_utils::find_loaded_so("cufile");
+
+    // If cuFile not found, try hipFile (AMD GPUDirect Storage, if available)
+    // Note: AMD's hipFile may not be widely available yet, so this is forward-compatible, use it carefully
+    if (lib_handle == nullptr) {
+        lib_handle = dl_binding_utils::find_loaded_so("hipfile");
+        if (lib_handle != nullptr) {
+            is_rocm = true;
+        }
+    }
+
+    if (lib_handle == nullptr) {
+        lib_handle = (void*)0x1;
+        return false;
+    }
+
+    using dl_binding_utils::resolve;
+    cuFileDriverOpen_fn = resolve<decltype(cuFileDriverOpen_fn)>(lib_handle, {"cuFileDriverOpen", "hipFileDriverOpen"});
+    cuFileDriverClose_fn = resolve<decltype(cuFileDriverClose_fn)>(lib_handle, {"cuFileDriverClose", "hipFileDriverClose"});
+    cuFileHandleRegister_fn = resolve<decltype(cuFileHandleRegister_fn)>(lib_handle, {"cuFileHandleRegister", "hipFileHandleRegister"});
+    cuFileHandleDeregister_fn = resolve<decltype(cuFileHandleDeregister_fn)>(lib_handle, {"cuFileHandleDeregister", "hipFileHandleDeregister"});
+    cuFileBufRegister_fn = resolve<decltype(cuFileBufRegister_fn)>(lib_handle, {"cuFileBufRegister", "hipFileBufRegister"});
+    cuFileBufDeregister_fn = resolve<decltype(cuFileBufDeregister_fn)>(lib_handle, {"cuFileBufDeregister", "hipFileBufDeregister"});
+    cuFileRead_fn = resolve<decltype(cuFileRead_fn)>(lib_handle, {"cuFileRead", "hipFileRead"});
+
+    return true;
+}
+
+inline CUfileError_t cuFileDriverOpen() {
+    return cuFileDriverOpen_fn();
+}
+inline CUfileError_t cuFileDriverClose() {
+    return cuFileDriverClose_fn();
+}
+inline CUfileError_t cuFileHandleRegister(CUfileHandle_t* fh, CUfileDescr_t* descr) {
+    return cuFileHandleRegister_fn(fh, descr);
+}
+inline void cuFileHandleDeregister(CUfileHandle_t fh) {
+    cuFileHandleDeregister_fn(fh);
+}
+inline CUfileError_t cuFileBufRegister(const void* devPtr_base, size_t size, int flags) {
+    return cuFileBufRegister_fn(devPtr_base, size, flags);
+}
+inline CUfileError_t cuFileBufDeregister(const void* devPtr_base) {
+    return cuFileBufDeregister_fn(devPtr_base);
+}
+inline ssize_t cuFileRead(CUfileHandle_t fh, void* bufPtr_base, size_t size, off_t file_offset, off_t devPtr_offset) {
+    return cuFileRead_fn(fh, bufPtr_base, size, file_offset, devPtr_offset);
+}
+
+} // namespace cufile_binding
+} // namespace siphon
