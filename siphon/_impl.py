@@ -78,6 +78,152 @@ default_backend = [Backend.URING, Backend.AIO]
 default_buffered_io_backend = [Backend.URING_BUFFERED, Backend.AIO_BUFFERED, Backend.MMAP]
 default_in_memory_backend = [Backend.MMAP]
 available_in_memory_backends = [Backend.MMAP, Backend.URING_BUFFERED, Backend.AIO_BUFFERED]
+
+
+# Automatic backend selection prefers direct-I/O backends (``URING``/``AIO``),
+# which deliberately bypass the page cache.  That is the right call for a cold
+# read, but it is strictly worse once the weights are already cached: a buffered
+# backend can serve the bytes straight out of the page cache instead of going
+# back to the device.  When the caller does not pin an explicit backend we
+# therefore probe residency and pick the matching family.
+DEFAULT_CACHE_RESIDENT_THRESHOLD = 0.8
+
+# A full-file ``mincore`` probe costs one syscall per page, which is far too
+# slow for multi-GB checkpoints, so we sample bounded windows spread over the
+# file instead.  The windows are advisory: we only need to tell "fully cached"
+# apart from "mostly cold".
+_PROBE_WINDOW_BYTES = 1 << 20
+_MAX_PROBE_PAGES = 16384
+_MAX_PROBE_WINDOWS = 64
+_LIBC = None
+_LIBC_UNAVAILABLE = False
+
+
+def _libc():
+    """Return libc with mmap/munmap/mincore bound, or ``None`` if unavailable."""
+    global _LIBC, _LIBC_UNAVAILABLE
+    if _LIBC is not None or _LIBC_UNAVAILABLE:
+        return _LIBC
+    try:
+        import ctypes
+        import ctypes.util
+
+        name = ctypes.util.find_library("c")
+        lib = ctypes.CDLL(name or None, use_errno=True)
+        lib.mmap.restype = ctypes.c_void_p
+        lib.mmap.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int,
+                             ctypes.c_int, ctypes.c_int, ctypes.c_long]
+        lib.munmap.restype = ctypes.c_int
+        lib.munmap.argtypes = [ctypes.c_void_p, ctypes.c_size_t]
+        lib.mincore.restype = ctypes.c_int
+        lib.mincore.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_void_p]
+        _LIBC = lib
+    except Exception:
+        _LIBC_UNAVAILABLE = True
+    return _LIBC
+
+
+def env_cache_resident_threshold() -> float:
+    """Residency ratio at or above which the page cache counts as warm.
+
+    Override with ``SIPHON_CACHE_RESIDENT_THRESHOLD``.  A value greater than
+    ``1.0`` is impossible to reach, which effectively disables the probe and
+    restores the legacy "always direct I/O" behaviour.
+    """
+    raw = os.environ.get("SIPHON_CACHE_RESIDENT_THRESHOLD", "").strip()
+    if not raw:
+        return DEFAULT_CACHE_RESIDENT_THRESHOLD
+    try:
+        return float(raw)
+    except ValueError:
+        warnings.warn(
+            f"SIPHON_CACHE_RESIDENT_THRESHOLD={raw!r} is not a float; "
+            f"using {DEFAULT_CACHE_RESIDENT_THRESHOLD}."
+        )
+        return DEFAULT_CACHE_RESIDENT_THRESHOLD
+
+
+def page_cache_resident_ratio(filename: str) -> float:
+    """Fraction of ``filename`` that is currently resident in the page cache.
+
+    Uses ``mincore(2)`` over a bounded set of windows sampled across the file,
+    so the cost is O(windows) instead of O(pages).  Returns ``-1.0`` when the
+    probe cannot run (non-Linux, no libc, unreadable file) so callers can tell
+    "unknown" apart from "cold".
+    """
+    if not sys.platform.startswith("linux"):
+        return -1.0
+    lib = _libc()
+    if lib is None:
+        return -1.0
+    try:
+        size = os.stat(filename).st_size
+    except OSError:
+        return -1.0
+    if size <= 0:
+        return -1.0
+
+    page = os.sysconf("SC_PAGE_SIZE")
+    window = max(page, min(_PROBE_WINDOW_BYTES, size))
+    windows = max(1, min(_MAX_PROBE_WINDOWS, -(-size // window)))
+    step = max(window, size // windows)
+
+    import ctypes
+
+    PROT_READ, MAP_SHARED, MAP_FAILED = 0x1, 0x1, ctypes.c_void_p(-1).value
+    resident = total = 0
+    fd = os.open(filename, os.O_RDONLY)
+    try:
+        offset = 0
+        while offset < size and total < _MAX_PROBE_PAGES:
+            length = min(window, size - offset)
+            length -= length % page
+            if length <= 0:
+                break
+            addr = lib.mmap(None, length, PROT_READ, MAP_SHARED, fd, offset)
+            if not addr or addr == MAP_FAILED:
+                break
+            try:
+                npages = length // page
+                vec = ctypes.create_string_buffer(npages)
+                if lib.mincore(ctypes.c_void_p(addr), ctypes.c_size_t(length),
+                               ctypes.cast(vec, ctypes.c_void_p)) == 0:
+                    raw = vec.raw
+                    resident += sum(1 for i in range(npages) if raw[i] & 1)
+                    total += npages
+            finally:
+                lib.munmap(ctypes.c_void_p(addr), ctypes.c_size_t(length))
+            offset += step
+    finally:
+        os.close(fd)
+
+    if total == 0:
+        return -1.0
+    return resident / total
+
+
+def choose_disk_backend_candidates(filenames: list[str]) -> list[Backend]:
+    """Automatic backend list for disk-backed files.
+
+    Returns the buffered family when every file looks fully page-cache resident,
+    otherwise the direct-I/O family.  Falls back to direct I/O whenever the
+    probe is unavailable, so behaviour is unchanged on platforms without
+    ``mincore``.
+    """
+    threshold = env_cache_resident_threshold()
+    if threshold > 1.0:
+        return list(default_backend)
+    ratios = [page_cache_resident_ratio(f) for f in filenames]
+    if not ratios or any(r < 0.0 for r in ratios):
+        return list(default_backend)
+    if min(ratios) >= threshold:
+        debug_log("page cache warm (min residency %.3f >= %.3f); using buffered backends",
+                  min(ratios), threshold)
+        return list(default_buffered_io_backend)
+    debug_log("page cache cold (min residency %.3f < %.3f); using direct I/O",
+              min(ratios), threshold)
+    return list(default_backend)
+
 MAX_IO_DEPTH = _C.MAX_IO_DEPTH
 
 
@@ -613,7 +759,7 @@ class safe_open:
                     io_depth = 3 * default_in_memory_concurrency
         else:
             if backend_candidates is None:
-                backend_candidates = default_backend
+                backend_candidates = choose_disk_backend_candidates(self.filename)
             backend = select_backend(backend_candidates)
 
             if backend == Backend.CUFILE:
