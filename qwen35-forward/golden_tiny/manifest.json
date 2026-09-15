@@ -1,0 +1,3785 @@
+{
+  "schema": "qwen35-golden-v1",
+  "byte_order": "little",
+  "dtype": "f32",
+  "source": {
+    "model": "<tiny-synthetic>",
+    "transformers": "5.15.1",
+    "torch": "2.11.0+cu130",
+    "seed": 0,
+    "params": 367952,
+    "ssm_gain": 1.0
+  },
+  "config": {
+    "transformers_version": "5.15.1",
+    "architectures": null,
+    "output_hidden_states": false,
+    "return_dict": true,
+    "dtype": null,
+    "chunk_size_feed_forward": 0,
+    "is_encoder_decoder": false,
+    "id2label": {
+      "0": "LABEL_0",
+      "1": "LABEL_1"
+    },
+    "label2id": {
+      "LABEL_0": 0,
+      "LABEL_1": 1
+    },
+    "problem_type": null,
+    "vocab_size": 256,
+    "hidden_size": 64,
+    "intermediate_size": 128,
+    "num_hidden_layers": 8,
+    "num_attention_heads": 2,
+    "num_key_value_heads": 1,
+    "hidden_act": "silu",
+    "max_position_embeddings": 1024,
+    "initializer_range": 0.02,
+    "rms_norm_eps": 1e-06,
+    "use_cache": true,
+    "tie_word_embeddings": false,
+    "rope_parameters": {
+      "rope_theta": 10000.0,
+      "partial_rotary_factor": 0.25,
+      "rope_type": "default"
+    },
+    "attention_bias": false,
+    "attention_dropout": 0.0,
+    "head_dim": 32,
+    "linear_conv_kernel_dim": 4,
+    "linear_key_head_dim": 16,
+    "linear_value_head_dim": 16,
+    "linear_num_key_heads": 2,
+    "linear_num_value_heads": 4,
+    "layer_types": [
+      "linear_attention",
+      "linear_attention",
+      "linear_attention",
+      "full_attention",
+      "linear_attention",
+      "linear_attention",
+      "linear_attention",
+      "full_attention"
+    ],
+    "pad_token_id": null,
+    "bos_token_id": null,
+    "eos_token_id": null,
+    "_name_or_path": "",
+    "partial_rotary_factor": 0.25,
+    "model_type": "qwen3_5_text",
+    "output_attentions": false
+  },
+  "prompt_ids": [
+    37,
+    235,
+    140,
+    72,
+    255,
+    137
+  ],
+  "delta_rule_selfcheck": {
+    "B1_H2_T6_K16_V16": {
+      "recurrent_vs_chunked_out_max_abs": 2.2351741790771484e-08,
+      "recurrent_vs_chunked_state_max_abs": 5.960464477539063e-08
+    },
+    "B1_H2_T1_K16_V16": {
+      "recurrent_vs_chunked_out_max_abs": 1.1175870895385742e-08,
+      "recurrent_vs_chunked_state_max_abs": 5.960464477539063e-08
+    },
+    "B2_H3_T5_K8_V8": {
+      "recurrent_vs_chunked_out_max_abs": 2.9802322387695312e-08,
+      "recurrent_vs_chunked_state_max_abs": 1.1920928955078125e-07
+    }
+  },
+  "hooked_modules": [
+    "model.embed_tokens",
+    "model.layers.0.linear_attn",
+    "model.layers.0.linear_attn.conv1d",
+    "model.layers.0.linear_attn.norm",
+    "model.layers.0.linear_attn.out_proj",
+    "model.layers.0.linear_attn.in_proj_qkv",
+    "model.layers.0.linear_attn.in_proj_z",
+    "model.layers.0.linear_attn.in_proj_b",
+    "model.layers.0.linear_attn.in_proj_a",
+    "model.layers.0.mlp",
+    "model.layers.0.mlp.gate_proj",
+    "model.layers.0.mlp.up_proj",
+    "model.layers.0.mlp.down_proj",
+    "model.layers.0.input_layernorm",
+    "model.layers.0.post_attention_layernorm",
+    "model.layers.1.linear_attn",
+    "model.layers.1.linear_attn.conv1d",
+    "model.layers.1.linear_attn.norm",
+    "model.layers.1.linear_attn.out_proj",
+    "model.layers.1.linear_attn.in_proj_qkv",
+    "model.layers.1.linear_attn.in_proj_z",
+    "model.layers.1.linear_attn.in_proj_b",
+    "model.layers.1.linear_attn.in_proj_a",
+    "model.layers.1.mlp",
+    "model.layers.1.mlp.gate_proj",
+    "model.layers.1.mlp.up_proj",
+    "model.layers.1.mlp.down_proj",
+    "model.layers.1.input_layernorm",
+    "model.layers.1.post_attention_layernorm",
+    "model.layers.2.linear_attn",
+    "model.layers.2.linear_attn.conv1d",
+    "model.layers.2.linear_attn.norm",
+    "model.layers.2.linear_attn.out_proj",
+    "model.layers.2.linear_attn.in_proj_qkv",
+    "model.layers.2.linear_attn.in_proj_z",
+    "model.layers.2.linear_attn.in_proj_b",
+    "model.layers.2.linear_attn.in_proj_a",
+    "model.layers.2.mlp",
+    "model.layers.2.mlp.gate_proj",
+    "model.layers.2.mlp.up_proj",
+    "model.layers.2.mlp.down_proj",
+    "model.layers.2.input_layernorm",
+    "model.layers.2.post_attention_layernorm",
+    "model.layers.3.self_attn",
+    "model.layers.3.self_attn.q_proj",
+    "model.layers.3.self_attn.k_proj",
+    "model.layers.3.self_attn.v_proj",
+    "model.layers.3.self_attn.o_proj",
+    "model.layers.3.self_attn.q_norm",
+    "model.layers.3.self_attn.k_norm",
+    "model.layers.3.mlp",
+    "model.layers.3.mlp.gate_proj",
+    "model.layers.3.mlp.up_proj",
+    "model.layers.3.mlp.down_proj",
+    "model.layers.3.input_layernorm",
+    "model.layers.3.post_attention_layernorm",
+    "model.layers.4.linear_attn",
+    "model.layers.4.linear_attn.conv1d",
+    "model.layers.4.linear_attn.norm",
+    "model.layers.4.linear_attn.out_proj",
+    "model.layers.4.linear_attn.in_proj_qkv",
+    "model.layers.4.linear_attn.in_proj_z",
+    "model.layers.4.linear_attn.in_proj_b",
+    "model.layers.4.linear_attn.in_proj_a",
+    "model.layers.4.mlp",
+    "model.layers.4.mlp.gate_proj",
+    "model.layers.4.mlp.up_proj",
+    "model.layers.4.mlp.down_proj",
+    "model.layers.4.input_layernorm",
+    "model.layers.4.post_attention_layernorm",
+    "model.layers.5.linear_attn",
+    "model.layers.5.linear_attn.conv1d",
+    "model.layers.5.linear_attn.norm",
+    "model.layers.5.linear_attn.out_proj",
+    "model.layers.5.linear_attn.in_proj_qkv",
+    "model.layers.5.linear_attn.in_proj_z",
+    "model.layers.5.linear_attn.in_proj_b",
+    "model.layers.5.linear_attn.in_proj_a",
+    "model.layers.5.mlp",
+    "model.layers.5.mlp.gate_proj",
+    "model.layers.5.mlp.up_proj",
+    "model.layers.5.mlp.down_proj",
+    "model.layers.5.input_layernorm",
+    "model.layers.5.post_attention_layernorm",
+    "model.layers.6.linear_attn",
+    "model.layers.6.linear_attn.conv1d",
+    "model.layers.6.linear_attn.norm",
+    "model.layers.6.linear_attn.out_proj",
+    "model.layers.6.linear_attn.in_proj_qkv",
+    "model.layers.6.linear_attn.in_proj_z",
+    "model.layers.6.linear_attn.in_proj_b",
+    "model.layers.6.linear_attn.in_proj_a",
+    "model.layers.6.mlp",
+    "model.layers.6.mlp.gate_proj",
+    "model.layers.6.mlp.up_proj",
+    "model.layers.6.mlp.down_proj",
+    "model.layers.6.input_layernorm",
+    "model.layers.6.post_attention_layernorm",
+    "model.layers.7.self_attn",
+    "model.layers.7.self_attn.q_proj",
+    "model.layers.7.self_attn.k_proj",
+    "model.layers.7.self_attn.v_proj",
+    "model.layers.7.self_attn.o_proj",
+    "model.layers.7.self_attn.q_norm",
+    "model.layers.7.self_attn.k_norm",
+    "model.layers.7.mlp",
+    "model.layers.7.mlp.gate_proj",
+    "model.layers.7.mlp.up_proj",
+    "model.layers.7.mlp.down_proj",
+    "model.layers.7.input_layernorm",
+    "model.layers.7.post_attention_layernorm",
+    "model.norm"
+  ],
+  "tensors": [
+    {
+      "group": "weights",
+      "name": "lm_head__weight",
+      "file": "weights/lm_head__weight.f32",
+      "shape": [
+        256,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 16384,
+      "nbytes": 65536
+    },
+    {
+      "group": "weights",
+      "name": "model__embed_tokens__weight",
+      "file": "weights/model__embed_tokens__weight.f32",
+      "shape": [
+        256,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 16384,
+      "nbytes": 65536
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__0__input_layernorm__weight",
+      "file": "weights/model__layers__0__input_layernorm__weight.f32",
+      "shape": [
+        64
+      ],
+      "dtype": "f32",
+      "numel": 64,
+      "nbytes": 256
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__0__linear_attn__A_log",
+      "file": "weights/model__layers__0__linear_attn__A_log.f32",
+      "shape": [
+        4
+      ],
+      "dtype": "f32",
+      "numel": 4,
+      "nbytes": 16
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__0__linear_attn__conv1d__weight",
+      "file": "weights/model__layers__0__linear_attn__conv1d__weight.f32",
+      "shape": [
+        128,
+        1,
+        4
+      ],
+      "dtype": "f32",
+      "numel": 512,
+      "nbytes": 2048
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__0__linear_attn__dt_bias",
+      "file": "weights/model__layers__0__linear_attn__dt_bias.f32",
+      "shape": [
+        4
+      ],
+      "dtype": "f32",
+      "numel": 4,
+      "nbytes": 16
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__0__linear_attn__in_proj_a__weight",
+      "file": "weights/model__layers__0__linear_attn__in_proj_a__weight.f32",
+      "shape": [
+        4,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 256,
+      "nbytes": 1024
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__0__linear_attn__in_proj_b__weight",
+      "file": "weights/model__layers__0__linear_attn__in_proj_b__weight.f32",
+      "shape": [
+        4,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 256,
+      "nbytes": 1024
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__0__linear_attn__in_proj_qkv__weight",
+      "file": "weights/model__layers__0__linear_attn__in_proj_qkv__weight.f32",
+      "shape": [
+        128,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 8192,
+      "nbytes": 32768
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__0__linear_attn__in_proj_z__weight",
+      "file": "weights/model__layers__0__linear_attn__in_proj_z__weight.f32",
+      "shape": [
+        64,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 4096,
+      "nbytes": 16384
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__0__linear_attn__norm__weight",
+      "file": "weights/model__layers__0__linear_attn__norm__weight.f32",
+      "shape": [
+        16
+      ],
+      "dtype": "f32",
+      "numel": 16,
+      "nbytes": 64
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__0__linear_attn__out_proj__weight",
+      "file": "weights/model__layers__0__linear_attn__out_proj__weight.f32",
+      "shape": [
+        64,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 4096,
+      "nbytes": 16384
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__0__mlp__down_proj__weight",
+      "file": "weights/model__layers__0__mlp__down_proj__weight.f32",
+      "shape": [
+        64,
+        128
+      ],
+      "dtype": "f32",
+      "numel": 8192,
+      "nbytes": 32768
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__0__mlp__gate_proj__weight",
+      "file": "weights/model__layers__0__mlp__gate_proj__weight.f32",
+      "shape": [
+        128,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 8192,
+      "nbytes": 32768
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__0__mlp__up_proj__weight",
+      "file": "weights/model__layers__0__mlp__up_proj__weight.f32",
+      "shape": [
+        128,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 8192,
+      "nbytes": 32768
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__0__post_attention_layernorm__weight",
+      "file": "weights/model__layers__0__post_attention_layernorm__weight.f32",
+      "shape": [
+        64
+      ],
+      "dtype": "f32",
+      "numel": 64,
+      "nbytes": 256
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__1__input_layernorm__weight",
+      "file": "weights/model__layers__1__input_layernorm__weight.f32",
+      "shape": [
+        64
+      ],
+      "dtype": "f32",
+      "numel": 64,
+      "nbytes": 256
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__1__linear_attn__A_log",
+      "file": "weights/model__layers__1__linear_attn__A_log.f32",
+      "shape": [
+        4
+      ],
+      "dtype": "f32",
+      "numel": 4,
+      "nbytes": 16
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__1__linear_attn__conv1d__weight",
+      "file": "weights/model__layers__1__linear_attn__conv1d__weight.f32",
+      "shape": [
+        128,
+        1,
+        4
+      ],
+      "dtype": "f32",
+      "numel": 512,
+      "nbytes": 2048
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__1__linear_attn__dt_bias",
+      "file": "weights/model__layers__1__linear_attn__dt_bias.f32",
+      "shape": [
+        4
+      ],
+      "dtype": "f32",
+      "numel": 4,
+      "nbytes": 16
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__1__linear_attn__in_proj_a__weight",
+      "file": "weights/model__layers__1__linear_attn__in_proj_a__weight.f32",
+      "shape": [
+        4,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 256,
+      "nbytes": 1024
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__1__linear_attn__in_proj_b__weight",
+      "file": "weights/model__layers__1__linear_attn__in_proj_b__weight.f32",
+      "shape": [
+        4,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 256,
+      "nbytes": 1024
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__1__linear_attn__in_proj_qkv__weight",
+      "file": "weights/model__layers__1__linear_attn__in_proj_qkv__weight.f32",
+      "shape": [
+        128,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 8192,
+      "nbytes": 32768
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__1__linear_attn__in_proj_z__weight",
+      "file": "weights/model__layers__1__linear_attn__in_proj_z__weight.f32",
+      "shape": [
+        64,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 4096,
+      "nbytes": 16384
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__1__linear_attn__norm__weight",
+      "file": "weights/model__layers__1__linear_attn__norm__weight.f32",
+      "shape": [
+        16
+      ],
+      "dtype": "f32",
+      "numel": 16,
+      "nbytes": 64
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__1__linear_attn__out_proj__weight",
+      "file": "weights/model__layers__1__linear_attn__out_proj__weight.f32",
+      "shape": [
+        64,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 4096,
+      "nbytes": 16384
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__1__mlp__down_proj__weight",
+      "file": "weights/model__layers__1__mlp__down_proj__weight.f32",
+      "shape": [
+        64,
+        128
+      ],
+      "dtype": "f32",
+      "numel": 8192,
+      "nbytes": 32768
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__1__mlp__gate_proj__weight",
+      "file": "weights/model__layers__1__mlp__gate_proj__weight.f32",
+      "shape": [
+        128,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 8192,
+      "nbytes": 32768
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__1__mlp__up_proj__weight",
+      "file": "weights/model__layers__1__mlp__up_proj__weight.f32",
+      "shape": [
+        128,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 8192,
+      "nbytes": 32768
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__1__post_attention_layernorm__weight",
+      "file": "weights/model__layers__1__post_attention_layernorm__weight.f32",
+      "shape": [
+        64
+      ],
+      "dtype": "f32",
+      "numel": 64,
+      "nbytes": 256
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__2__input_layernorm__weight",
+      "file": "weights/model__layers__2__input_layernorm__weight.f32",
+      "shape": [
+        64
+      ],
+      "dtype": "f32",
+      "numel": 64,
+      "nbytes": 256
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__2__linear_attn__A_log",
+      "file": "weights/model__layers__2__linear_attn__A_log.f32",
+      "shape": [
+        4
+      ],
+      "dtype": "f32",
+      "numel": 4,
+      "nbytes": 16
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__2__linear_attn__conv1d__weight",
+      "file": "weights/model__layers__2__linear_attn__conv1d__weight.f32",
+      "shape": [
+        128,
+        1,
+        4
+      ],
+      "dtype": "f32",
+      "numel": 512,
+      "nbytes": 2048
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__2__linear_attn__dt_bias",
+      "file": "weights/model__layers__2__linear_attn__dt_bias.f32",
+      "shape": [
+        4
+      ],
+      "dtype": "f32",
+      "numel": 4,
+      "nbytes": 16
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__2__linear_attn__in_proj_a__weight",
+      "file": "weights/model__layers__2__linear_attn__in_proj_a__weight.f32",
+      "shape": [
+        4,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 256,
+      "nbytes": 1024
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__2__linear_attn__in_proj_b__weight",
+      "file": "weights/model__layers__2__linear_attn__in_proj_b__weight.f32",
+      "shape": [
+        4,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 256,
+      "nbytes": 1024
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__2__linear_attn__in_proj_qkv__weight",
+      "file": "weights/model__layers__2__linear_attn__in_proj_qkv__weight.f32",
+      "shape": [
+        128,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 8192,
+      "nbytes": 32768
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__2__linear_attn__in_proj_z__weight",
+      "file": "weights/model__layers__2__linear_attn__in_proj_z__weight.f32",
+      "shape": [
+        64,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 4096,
+      "nbytes": 16384
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__2__linear_attn__norm__weight",
+      "file": "weights/model__layers__2__linear_attn__norm__weight.f32",
+      "shape": [
+        16
+      ],
+      "dtype": "f32",
+      "numel": 16,
+      "nbytes": 64
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__2__linear_attn__out_proj__weight",
+      "file": "weights/model__layers__2__linear_attn__out_proj__weight.f32",
+      "shape": [
+        64,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 4096,
+      "nbytes": 16384
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__2__mlp__down_proj__weight",
+      "file": "weights/model__layers__2__mlp__down_proj__weight.f32",
+      "shape": [
+        64,
+        128
+      ],
+      "dtype": "f32",
+      "numel": 8192,
+      "nbytes": 32768
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__2__mlp__gate_proj__weight",
+      "file": "weights/model__layers__2__mlp__gate_proj__weight.f32",
+      "shape": [
+        128,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 8192,
+      "nbytes": 32768
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__2__mlp__up_proj__weight",
+      "file": "weights/model__layers__2__mlp__up_proj__weight.f32",
+      "shape": [
+        128,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 8192,
+      "nbytes": 32768
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__2__post_attention_layernorm__weight",
+      "file": "weights/model__layers__2__post_attention_layernorm__weight.f32",
+      "shape": [
+        64
+      ],
+      "dtype": "f32",
+      "numel": 64,
+      "nbytes": 256
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__3__input_layernorm__weight",
+      "file": "weights/model__layers__3__input_layernorm__weight.f32",
+      "shape": [
+        64
+      ],
+      "dtype": "f32",
+      "numel": 64,
+      "nbytes": 256
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__3__mlp__down_proj__weight",
+      "file": "weights/model__layers__3__mlp__down_proj__weight.f32",
+      "shape": [
+        64,
+        128
+      ],
+      "dtype": "f32",
+      "numel": 8192,
+      "nbytes": 32768
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__3__mlp__gate_proj__weight",
+      "file": "weights/model__layers__3__mlp__gate_proj__weight.f32",
+      "shape": [
+        128,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 8192,
+      "nbytes": 32768
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__3__mlp__up_proj__weight",
+      "file": "weights/model__layers__3__mlp__up_proj__weight.f32",
+      "shape": [
+        128,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 8192,
+      "nbytes": 32768
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__3__post_attention_layernorm__weight",
+      "file": "weights/model__layers__3__post_attention_layernorm__weight.f32",
+      "shape": [
+        64
+      ],
+      "dtype": "f32",
+      "numel": 64,
+      "nbytes": 256
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__3__self_attn__k_norm__weight",
+      "file": "weights/model__layers__3__self_attn__k_norm__weight.f32",
+      "shape": [
+        32
+      ],
+      "dtype": "f32",
+      "numel": 32,
+      "nbytes": 128
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__3__self_attn__k_proj__weight",
+      "file": "weights/model__layers__3__self_attn__k_proj__weight.f32",
+      "shape": [
+        32,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 2048,
+      "nbytes": 8192
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__3__self_attn__o_proj__weight",
+      "file": "weights/model__layers__3__self_attn__o_proj__weight.f32",
+      "shape": [
+        64,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 4096,
+      "nbytes": 16384
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__3__self_attn__q_norm__weight",
+      "file": "weights/model__layers__3__self_attn__q_norm__weight.f32",
+      "shape": [
+        32
+      ],
+      "dtype": "f32",
+      "numel": 32,
+      "nbytes": 128
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__3__self_attn__q_proj__weight",
+      "file": "weights/model__layers__3__self_attn__q_proj__weight.f32",
+      "shape": [
+        128,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 8192,
+      "nbytes": 32768
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__3__self_attn__v_proj__weight",
+      "file": "weights/model__layers__3__self_attn__v_proj__weight.f32",
+      "shape": [
+        32,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 2048,
+      "nbytes": 8192
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__4__input_layernorm__weight",
+      "file": "weights/model__layers__4__input_layernorm__weight.f32",
+      "shape": [
+        64
+      ],
+      "dtype": "f32",
+      "numel": 64,
+      "nbytes": 256
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__4__linear_attn__A_log",
+      "file": "weights/model__layers__4__linear_attn__A_log.f32",
+      "shape": [
+        4
+      ],
+      "dtype": "f32",
+      "numel": 4,
+      "nbytes": 16
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__4__linear_attn__conv1d__weight",
+      "file": "weights/model__layers__4__linear_attn__conv1d__weight.f32",
+      "shape": [
+        128,
+        1,
+        4
+      ],
+      "dtype": "f32",
+      "numel": 512,
+      "nbytes": 2048
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__4__linear_attn__dt_bias",
+      "file": "weights/model__layers__4__linear_attn__dt_bias.f32",
+      "shape": [
+        4
+      ],
+      "dtype": "f32",
+      "numel": 4,
+      "nbytes": 16
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__4__linear_attn__in_proj_a__weight",
+      "file": "weights/model__layers__4__linear_attn__in_proj_a__weight.f32",
+      "shape": [
+        4,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 256,
+      "nbytes": 1024
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__4__linear_attn__in_proj_b__weight",
+      "file": "weights/model__layers__4__linear_attn__in_proj_b__weight.f32",
+      "shape": [
+        4,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 256,
+      "nbytes": 1024
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__4__linear_attn__in_proj_qkv__weight",
+      "file": "weights/model__layers__4__linear_attn__in_proj_qkv__weight.f32",
+      "shape": [
+        128,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 8192,
+      "nbytes": 32768
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__4__linear_attn__in_proj_z__weight",
+      "file": "weights/model__layers__4__linear_attn__in_proj_z__weight.f32",
+      "shape": [
+        64,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 4096,
+      "nbytes": 16384
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__4__linear_attn__norm__weight",
+      "file": "weights/model__layers__4__linear_attn__norm__weight.f32",
+      "shape": [
+        16
+      ],
+      "dtype": "f32",
+      "numel": 16,
+      "nbytes": 64
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__4__linear_attn__out_proj__weight",
+      "file": "weights/model__layers__4__linear_attn__out_proj__weight.f32",
+      "shape": [
+        64,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 4096,
+      "nbytes": 16384
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__4__mlp__down_proj__weight",
+      "file": "weights/model__layers__4__mlp__down_proj__weight.f32",
+      "shape": [
+        64,
+        128
+      ],
+      "dtype": "f32",
+      "numel": 8192,
+      "nbytes": 32768
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__4__mlp__gate_proj__weight",
+      "file": "weights/model__layers__4__mlp__gate_proj__weight.f32",
+      "shape": [
+        128,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 8192,
+      "nbytes": 32768
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__4__mlp__up_proj__weight",
+      "file": "weights/model__layers__4__mlp__up_proj__weight.f32",
+      "shape": [
+        128,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 8192,
+      "nbytes": 32768
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__4__post_attention_layernorm__weight",
+      "file": "weights/model__layers__4__post_attention_layernorm__weight.f32",
+      "shape": [
+        64
+      ],
+      "dtype": "f32",
+      "numel": 64,
+      "nbytes": 256
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__5__input_layernorm__weight",
+      "file": "weights/model__layers__5__input_layernorm__weight.f32",
+      "shape": [
+        64
+      ],
+      "dtype": "f32",
+      "numel": 64,
+      "nbytes": 256
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__5__linear_attn__A_log",
+      "file": "weights/model__layers__5__linear_attn__A_log.f32",
+      "shape": [
+        4
+      ],
+      "dtype": "f32",
+      "numel": 4,
+      "nbytes": 16
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__5__linear_attn__conv1d__weight",
+      "file": "weights/model__layers__5__linear_attn__conv1d__weight.f32",
+      "shape": [
+        128,
+        1,
+        4
+      ],
+      "dtype": "f32",
+      "numel": 512,
+      "nbytes": 2048
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__5__linear_attn__dt_bias",
+      "file": "weights/model__layers__5__linear_attn__dt_bias.f32",
+      "shape": [
+        4
+      ],
+      "dtype": "f32",
+      "numel": 4,
+      "nbytes": 16
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__5__linear_attn__in_proj_a__weight",
+      "file": "weights/model__layers__5__linear_attn__in_proj_a__weight.f32",
+      "shape": [
+        4,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 256,
+      "nbytes": 1024
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__5__linear_attn__in_proj_b__weight",
+      "file": "weights/model__layers__5__linear_attn__in_proj_b__weight.f32",
+      "shape": [
+        4,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 256,
+      "nbytes": 1024
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__5__linear_attn__in_proj_qkv__weight",
+      "file": "weights/model__layers__5__linear_attn__in_proj_qkv__weight.f32",
+      "shape": [
+        128,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 8192,
+      "nbytes": 32768
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__5__linear_attn__in_proj_z__weight",
+      "file": "weights/model__layers__5__linear_attn__in_proj_z__weight.f32",
+      "shape": [
+        64,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 4096,
+      "nbytes": 16384
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__5__linear_attn__norm__weight",
+      "file": "weights/model__layers__5__linear_attn__norm__weight.f32",
+      "shape": [
+        16
+      ],
+      "dtype": "f32",
+      "numel": 16,
+      "nbytes": 64
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__5__linear_attn__out_proj__weight",
+      "file": "weights/model__layers__5__linear_attn__out_proj__weight.f32",
+      "shape": [
+        64,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 4096,
+      "nbytes": 16384
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__5__mlp__down_proj__weight",
+      "file": "weights/model__layers__5__mlp__down_proj__weight.f32",
+      "shape": [
+        64,
+        128
+      ],
+      "dtype": "f32",
+      "numel": 8192,
+      "nbytes": 32768
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__5__mlp__gate_proj__weight",
+      "file": "weights/model__layers__5__mlp__gate_proj__weight.f32",
+      "shape": [
+        128,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 8192,
+      "nbytes": 32768
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__5__mlp__up_proj__weight",
+      "file": "weights/model__layers__5__mlp__up_proj__weight.f32",
+      "shape": [
+        128,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 8192,
+      "nbytes": 32768
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__5__post_attention_layernorm__weight",
+      "file": "weights/model__layers__5__post_attention_layernorm__weight.f32",
+      "shape": [
+        64
+      ],
+      "dtype": "f32",
+      "numel": 64,
+      "nbytes": 256
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__6__input_layernorm__weight",
+      "file": "weights/model__layers__6__input_layernorm__weight.f32",
+      "shape": [
+        64
+      ],
+      "dtype": "f32",
+      "numel": 64,
+      "nbytes": 256
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__6__linear_attn__A_log",
+      "file": "weights/model__layers__6__linear_attn__A_log.f32",
+      "shape": [
+        4
+      ],
+      "dtype": "f32",
+      "numel": 4,
+      "nbytes": 16
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__6__linear_attn__conv1d__weight",
+      "file": "weights/model__layers__6__linear_attn__conv1d__weight.f32",
+      "shape": [
+        128,
+        1,
+        4
+      ],
+      "dtype": "f32",
+      "numel": 512,
+      "nbytes": 2048
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__6__linear_attn__dt_bias",
+      "file": "weights/model__layers__6__linear_attn__dt_bias.f32",
+      "shape": [
+        4
+      ],
+      "dtype": "f32",
+      "numel": 4,
+      "nbytes": 16
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__6__linear_attn__in_proj_a__weight",
+      "file": "weights/model__layers__6__linear_attn__in_proj_a__weight.f32",
+      "shape": [
+        4,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 256,
+      "nbytes": 1024
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__6__linear_attn__in_proj_b__weight",
+      "file": "weights/model__layers__6__linear_attn__in_proj_b__weight.f32",
+      "shape": [
+        4,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 256,
+      "nbytes": 1024
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__6__linear_attn__in_proj_qkv__weight",
+      "file": "weights/model__layers__6__linear_attn__in_proj_qkv__weight.f32",
+      "shape": [
+        128,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 8192,
+      "nbytes": 32768
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__6__linear_attn__in_proj_z__weight",
+      "file": "weights/model__layers__6__linear_attn__in_proj_z__weight.f32",
+      "shape": [
+        64,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 4096,
+      "nbytes": 16384
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__6__linear_attn__norm__weight",
+      "file": "weights/model__layers__6__linear_attn__norm__weight.f32",
+      "shape": [
+        16
+      ],
+      "dtype": "f32",
+      "numel": 16,
+      "nbytes": 64
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__6__linear_attn__out_proj__weight",
+      "file": "weights/model__layers__6__linear_attn__out_proj__weight.f32",
+      "shape": [
+        64,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 4096,
+      "nbytes": 16384
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__6__mlp__down_proj__weight",
+      "file": "weights/model__layers__6__mlp__down_proj__weight.f32",
+      "shape": [
+        64,
+        128
+      ],
+      "dtype": "f32",
+      "numel": 8192,
+      "nbytes": 32768
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__6__mlp__gate_proj__weight",
+      "file": "weights/model__layers__6__mlp__gate_proj__weight.f32",
+      "shape": [
+        128,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 8192,
+      "nbytes": 32768
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__6__mlp__up_proj__weight",
+      "file": "weights/model__layers__6__mlp__up_proj__weight.f32",
+      "shape": [
+        128,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 8192,
+      "nbytes": 32768
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__6__post_attention_layernorm__weight",
+      "file": "weights/model__layers__6__post_attention_layernorm__weight.f32",
+      "shape": [
+        64
+      ],
+      "dtype": "f32",
+      "numel": 64,
+      "nbytes": 256
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__7__input_layernorm__weight",
+      "file": "weights/model__layers__7__input_layernorm__weight.f32",
+      "shape": [
+        64
+      ],
+      "dtype": "f32",
+      "numel": 64,
+      "nbytes": 256
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__7__mlp__down_proj__weight",
+      "file": "weights/model__layers__7__mlp__down_proj__weight.f32",
+      "shape": [
+        64,
+        128
+      ],
+      "dtype": "f32",
+      "numel": 8192,
+      "nbytes": 32768
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__7__mlp__gate_proj__weight",
+      "file": "weights/model__layers__7__mlp__gate_proj__weight.f32",
+      "shape": [
+        128,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 8192,
+      "nbytes": 32768
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__7__mlp__up_proj__weight",
+      "file": "weights/model__layers__7__mlp__up_proj__weight.f32",
+      "shape": [
+        128,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 8192,
+      "nbytes": 32768
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__7__post_attention_layernorm__weight",
+      "file": "weights/model__layers__7__post_attention_layernorm__weight.f32",
+      "shape": [
+        64
+      ],
+      "dtype": "f32",
+      "numel": 64,
+      "nbytes": 256
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__7__self_attn__k_norm__weight",
+      "file": "weights/model__layers__7__self_attn__k_norm__weight.f32",
+      "shape": [
+        32
+      ],
+      "dtype": "f32",
+      "numel": 32,
+      "nbytes": 128
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__7__self_attn__k_proj__weight",
+      "file": "weights/model__layers__7__self_attn__k_proj__weight.f32",
+      "shape": [
+        32,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 2048,
+      "nbytes": 8192
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__7__self_attn__o_proj__weight",
+      "file": "weights/model__layers__7__self_attn__o_proj__weight.f32",
+      "shape": [
+        64,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 4096,
+      "nbytes": 16384
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__7__self_attn__q_norm__weight",
+      "file": "weights/model__layers__7__self_attn__q_norm__weight.f32",
+      "shape": [
+        32
+      ],
+      "dtype": "f32",
+      "numel": 32,
+      "nbytes": 128
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__7__self_attn__q_proj__weight",
+      "file": "weights/model__layers__7__self_attn__q_proj__weight.f32",
+      "shape": [
+        128,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 8192,
+      "nbytes": 32768
+    },
+    {
+      "group": "weights",
+      "name": "model__layers__7__self_attn__v_proj__weight",
+      "file": "weights/model__layers__7__self_attn__v_proj__weight.f32",
+      "shape": [
+        32,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 2048,
+      "nbytes": 8192
+    },
+    {
+      "group": "weights",
+      "name": "model__norm__weight",
+      "file": "weights/model__norm__weight.f32",
+      "shape": [
+        64
+      ],
+      "dtype": "f32",
+      "numel": 64,
+      "nbytes": 256
+    },
+    {
+      "group": "units",
+      "name": "delta_B1_H2_T6_K16_V16__q",
+      "file": "units/delta_B1_H2_T6_K16_V16__q.f32",
+      "shape": [
+        1,
+        2,
+        6,
+        16
+      ],
+      "dtype": "f32",
+      "numel": 192,
+      "nbytes": 768
+    },
+    {
+      "group": "units",
+      "name": "delta_B1_H2_T6_K16_V16__k",
+      "file": "units/delta_B1_H2_T6_K16_V16__k.f32",
+      "shape": [
+        1,
+        2,
+        6,
+        16
+      ],
+      "dtype": "f32",
+      "numel": 192,
+      "nbytes": 768
+    },
+    {
+      "group": "units",
+      "name": "delta_B1_H2_T6_K16_V16__v",
+      "file": "units/delta_B1_H2_T6_K16_V16__v.f32",
+      "shape": [
+        1,
+        2,
+        6,
+        16
+      ],
+      "dtype": "f32",
+      "numel": 192,
+      "nbytes": 768
+    },
+    {
+      "group": "units",
+      "name": "delta_B1_H2_T6_K16_V16__g",
+      "file": "units/delta_B1_H2_T6_K16_V16__g.f32",
+      "shape": [
+        1,
+        2,
+        6
+      ],
+      "dtype": "f32",
+      "numel": 12,
+      "nbytes": 48
+    },
+    {
+      "group": "units",
+      "name": "delta_B1_H2_T6_K16_V16__beta",
+      "file": "units/delta_B1_H2_T6_K16_V16__beta.f32",
+      "shape": [
+        1,
+        2,
+        6
+      ],
+      "dtype": "f32",
+      "numel": 12,
+      "nbytes": 48
+    },
+    {
+      "group": "units",
+      "name": "delta_B1_H2_T6_K16_V16__recurrent_out",
+      "file": "units/delta_B1_H2_T6_K16_V16__recurrent_out.f32",
+      "shape": [
+        1,
+        2,
+        6,
+        16
+      ],
+      "dtype": "f32",
+      "numel": 192,
+      "nbytes": 768
+    },
+    {
+      "group": "units",
+      "name": "delta_B1_H2_T6_K16_V16__recurrent_state",
+      "file": "units/delta_B1_H2_T6_K16_V16__recurrent_state.f32",
+      "shape": [
+        1,
+        6,
+        16,
+        16
+      ],
+      "dtype": "f32",
+      "numel": 1536,
+      "nbytes": 6144
+    },
+    {
+      "group": "units",
+      "name": "delta_B1_H2_T6_K16_V16__chunked_out",
+      "file": "units/delta_B1_H2_T6_K16_V16__chunked_out.f32",
+      "shape": [
+        1,
+        2,
+        6,
+        16
+      ],
+      "dtype": "f32",
+      "numel": 192,
+      "nbytes": 768
+    },
+    {
+      "group": "units",
+      "name": "delta_B1_H2_T6_K16_V16__chunked_state",
+      "file": "units/delta_B1_H2_T6_K16_V16__chunked_state.f32",
+      "shape": [
+        1,
+        6,
+        16,
+        16
+      ],
+      "dtype": "f32",
+      "numel": 1536,
+      "nbytes": 6144
+    },
+    {
+      "group": "units",
+      "name": "delta_B1_H2_T1_K16_V16__q",
+      "file": "units/delta_B1_H2_T1_K16_V16__q.f32",
+      "shape": [
+        1,
+        2,
+        1,
+        16
+      ],
+      "dtype": "f32",
+      "numel": 32,
+      "nbytes": 128
+    },
+    {
+      "group": "units",
+      "name": "delta_B1_H2_T1_K16_V16__k",
+      "file": "units/delta_B1_H2_T1_K16_V16__k.f32",
+      "shape": [
+        1,
+        2,
+        1,
+        16
+      ],
+      "dtype": "f32",
+      "numel": 32,
+      "nbytes": 128
+    },
+    {
+      "group": "units",
+      "name": "delta_B1_H2_T1_K16_V16__v",
+      "file": "units/delta_B1_H2_T1_K16_V16__v.f32",
+      "shape": [
+        1,
+        2,
+        1,
+        16
+      ],
+      "dtype": "f32",
+      "numel": 32,
+      "nbytes": 128
+    },
+    {
+      "group": "units",
+      "name": "delta_B1_H2_T1_K16_V16__g",
+      "file": "units/delta_B1_H2_T1_K16_V16__g.f32",
+      "shape": [
+        1,
+        2,
+        1
+      ],
+      "dtype": "f32",
+      "numel": 2,
+      "nbytes": 8
+    },
+    {
+      "group": "units",
+      "name": "delta_B1_H2_T1_K16_V16__beta",
+      "file": "units/delta_B1_H2_T1_K16_V16__beta.f32",
+      "shape": [
+        1,
+        2,
+        1
+      ],
+      "dtype": "f32",
+      "numel": 2,
+      "nbytes": 8
+    },
+    {
+      "group": "units",
+      "name": "delta_B1_H2_T1_K16_V16__recurrent_out",
+      "file": "units/delta_B1_H2_T1_K16_V16__recurrent_out.f32",
+      "shape": [
+        1,
+        2,
+        1,
+        16
+      ],
+      "dtype": "f32",
+      "numel": 32,
+      "nbytes": 128
+    },
+    {
+      "group": "units",
+      "name": "delta_B1_H2_T1_K16_V16__recurrent_state",
+      "file": "units/delta_B1_H2_T1_K16_V16__recurrent_state.f32",
+      "shape": [
+        1,
+        1,
+        16,
+        16
+      ],
+      "dtype": "f32",
+      "numel": 256,
+      "nbytes": 1024
+    },
+    {
+      "group": "units",
+      "name": "delta_B1_H2_T1_K16_V16__chunked_out",
+      "file": "units/delta_B1_H2_T1_K16_V16__chunked_out.f32",
+      "shape": [
+        1,
+        2,
+        1,
+        16
+      ],
+      "dtype": "f32",
+      "numel": 32,
+      "nbytes": 128
+    },
+    {
+      "group": "units",
+      "name": "delta_B1_H2_T1_K16_V16__chunked_state",
+      "file": "units/delta_B1_H2_T1_K16_V16__chunked_state.f32",
+      "shape": [
+        1,
+        1,
+        16,
+        16
+      ],
+      "dtype": "f32",
+      "numel": 256,
+      "nbytes": 1024
+    },
+    {
+      "group": "units",
+      "name": "delta_B2_H3_T5_K8_V8__q",
+      "file": "units/delta_B2_H3_T5_K8_V8__q.f32",
+      "shape": [
+        2,
+        3,
+        5,
+        8
+      ],
+      "dtype": "f32",
+      "numel": 240,
+      "nbytes": 960
+    },
+    {
+      "group": "units",
+      "name": "delta_B2_H3_T5_K8_V8__k",
+      "file": "units/delta_B2_H3_T5_K8_V8__k.f32",
+      "shape": [
+        2,
+        3,
+        5,
+        8
+      ],
+      "dtype": "f32",
+      "numel": 240,
+      "nbytes": 960
+    },
+    {
+      "group": "units",
+      "name": "delta_B2_H3_T5_K8_V8__v",
+      "file": "units/delta_B2_H3_T5_K8_V8__v.f32",
+      "shape": [
+        2,
+        3,
+        5,
+        8
+      ],
+      "dtype": "f32",
+      "numel": 240,
+      "nbytes": 960
+    },
+    {
+      "group": "units",
+      "name": "delta_B2_H3_T5_K8_V8__g",
+      "file": "units/delta_B2_H3_T5_K8_V8__g.f32",
+      "shape": [
+        2,
+        3,
+        5
+      ],
+      "dtype": "f32",
+      "numel": 30,
+      "nbytes": 120
+    },
+    {
+      "group": "units",
+      "name": "delta_B2_H3_T5_K8_V8__beta",
+      "file": "units/delta_B2_H3_T5_K8_V8__beta.f32",
+      "shape": [
+        2,
+        3,
+        5
+      ],
+      "dtype": "f32",
+      "numel": 30,
+      "nbytes": 120
+    },
+    {
+      "group": "units",
+      "name": "delta_B2_H3_T5_K8_V8__recurrent_out",
+      "file": "units/delta_B2_H3_T5_K8_V8__recurrent_out.f32",
+      "shape": [
+        2,
+        3,
+        5,
+        8
+      ],
+      "dtype": "f32",
+      "numel": 240,
+      "nbytes": 960
+    },
+    {
+      "group": "units",
+      "name": "delta_B2_H3_T5_K8_V8__recurrent_state",
+      "file": "units/delta_B2_H3_T5_K8_V8__recurrent_state.f32",
+      "shape": [
+        2,
+        5,
+        8,
+        8
+      ],
+      "dtype": "f32",
+      "numel": 640,
+      "nbytes": 2560
+    },
+    {
+      "group": "units",
+      "name": "delta_B2_H3_T5_K8_V8__chunked_out",
+      "file": "units/delta_B2_H3_T5_K8_V8__chunked_out.f32",
+      "shape": [
+        2,
+        3,
+        5,
+        8
+      ],
+      "dtype": "f32",
+      "numel": 240,
+      "nbytes": 960
+    },
+    {
+      "group": "units",
+      "name": "delta_B2_H3_T5_K8_V8__chunked_state",
+      "file": "units/delta_B2_H3_T5_K8_V8__chunked_state.f32",
+      "shape": [
+        2,
+        5,
+        8,
+        8
+      ],
+      "dtype": "f32",
+      "numel": 640,
+      "nbytes": 2560
+    },
+    {
+      "group": "intermediates",
+      "name": "prompt_ids_as_f32",
+      "file": "intermediates/prompt_ids_as_f32.f32",
+      "shape": [
+        6
+      ],
+      "dtype": "f32",
+      "numel": 6,
+      "nbytes": 24
+    },
+    {
+      "group": "intermediates",
+      "name": "model__embed_tokens",
+      "file": "intermediates/model__embed_tokens.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__0__input_layernorm",
+      "file": "intermediates/model__layers__0__input_layernorm.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__0__linear_attn__in_proj_qkv",
+      "file": "intermediates/model__layers__0__linear_attn__in_proj_qkv.f32",
+      "shape": [
+        1,
+        6,
+        128
+      ],
+      "dtype": "f32",
+      "numel": 768,
+      "nbytes": 3072
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__0__linear_attn__in_proj_z",
+      "file": "intermediates/model__layers__0__linear_attn__in_proj_z.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__0__linear_attn__in_proj_b",
+      "file": "intermediates/model__layers__0__linear_attn__in_proj_b.f32",
+      "shape": [
+        1,
+        6,
+        4
+      ],
+      "dtype": "f32",
+      "numel": 24,
+      "nbytes": 96
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__0__linear_attn__in_proj_a",
+      "file": "intermediates/model__layers__0__linear_attn__in_proj_a.f32",
+      "shape": [
+        1,
+        6,
+        4
+      ],
+      "dtype": "f32",
+      "numel": 24,
+      "nbytes": 96
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__0__linear_attn__norm",
+      "file": "intermediates/model__layers__0__linear_attn__norm.f32",
+      "shape": [
+        24,
+        16
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__0__linear_attn__out_proj",
+      "file": "intermediates/model__layers__0__linear_attn__out_proj.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__0__linear_attn",
+      "file": "intermediates/model__layers__0__linear_attn.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__0__post_attention_layernorm",
+      "file": "intermediates/model__layers__0__post_attention_layernorm.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__0__mlp__gate_proj",
+      "file": "intermediates/model__layers__0__mlp__gate_proj.f32",
+      "shape": [
+        1,
+        6,
+        128
+      ],
+      "dtype": "f32",
+      "numel": 768,
+      "nbytes": 3072
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__0__mlp__up_proj",
+      "file": "intermediates/model__layers__0__mlp__up_proj.f32",
+      "shape": [
+        1,
+        6,
+        128
+      ],
+      "dtype": "f32",
+      "numel": 768,
+      "nbytes": 3072
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__0__mlp__down_proj",
+      "file": "intermediates/model__layers__0__mlp__down_proj.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__0__mlp",
+      "file": "intermediates/model__layers__0__mlp.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__1__input_layernorm",
+      "file": "intermediates/model__layers__1__input_layernorm.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__1__linear_attn__in_proj_qkv",
+      "file": "intermediates/model__layers__1__linear_attn__in_proj_qkv.f32",
+      "shape": [
+        1,
+        6,
+        128
+      ],
+      "dtype": "f32",
+      "numel": 768,
+      "nbytes": 3072
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__1__linear_attn__in_proj_z",
+      "file": "intermediates/model__layers__1__linear_attn__in_proj_z.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__1__linear_attn__in_proj_b",
+      "file": "intermediates/model__layers__1__linear_attn__in_proj_b.f32",
+      "shape": [
+        1,
+        6,
+        4
+      ],
+      "dtype": "f32",
+      "numel": 24,
+      "nbytes": 96
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__1__linear_attn__in_proj_a",
+      "file": "intermediates/model__layers__1__linear_attn__in_proj_a.f32",
+      "shape": [
+        1,
+        6,
+        4
+      ],
+      "dtype": "f32",
+      "numel": 24,
+      "nbytes": 96
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__1__linear_attn__norm",
+      "file": "intermediates/model__layers__1__linear_attn__norm.f32",
+      "shape": [
+        24,
+        16
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__1__linear_attn__out_proj",
+      "file": "intermediates/model__layers__1__linear_attn__out_proj.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__1__linear_attn",
+      "file": "intermediates/model__layers__1__linear_attn.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__1__post_attention_layernorm",
+      "file": "intermediates/model__layers__1__post_attention_layernorm.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__1__mlp__gate_proj",
+      "file": "intermediates/model__layers__1__mlp__gate_proj.f32",
+      "shape": [
+        1,
+        6,
+        128
+      ],
+      "dtype": "f32",
+      "numel": 768,
+      "nbytes": 3072
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__1__mlp__up_proj",
+      "file": "intermediates/model__layers__1__mlp__up_proj.f32",
+      "shape": [
+        1,
+        6,
+        128
+      ],
+      "dtype": "f32",
+      "numel": 768,
+      "nbytes": 3072
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__1__mlp__down_proj",
+      "file": "intermediates/model__layers__1__mlp__down_proj.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__1__mlp",
+      "file": "intermediates/model__layers__1__mlp.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__2__input_layernorm",
+      "file": "intermediates/model__layers__2__input_layernorm.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__2__linear_attn__in_proj_qkv",
+      "file": "intermediates/model__layers__2__linear_attn__in_proj_qkv.f32",
+      "shape": [
+        1,
+        6,
+        128
+      ],
+      "dtype": "f32",
+      "numel": 768,
+      "nbytes": 3072
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__2__linear_attn__in_proj_z",
+      "file": "intermediates/model__layers__2__linear_attn__in_proj_z.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__2__linear_attn__in_proj_b",
+      "file": "intermediates/model__layers__2__linear_attn__in_proj_b.f32",
+      "shape": [
+        1,
+        6,
+        4
+      ],
+      "dtype": "f32",
+      "numel": 24,
+      "nbytes": 96
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__2__linear_attn__in_proj_a",
+      "file": "intermediates/model__layers__2__linear_attn__in_proj_a.f32",
+      "shape": [
+        1,
+        6,
+        4
+      ],
+      "dtype": "f32",
+      "numel": 24,
+      "nbytes": 96
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__2__linear_attn__norm",
+      "file": "intermediates/model__layers__2__linear_attn__norm.f32",
+      "shape": [
+        24,
+        16
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__2__linear_attn__out_proj",
+      "file": "intermediates/model__layers__2__linear_attn__out_proj.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__2__linear_attn",
+      "file": "intermediates/model__layers__2__linear_attn.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__2__post_attention_layernorm",
+      "file": "intermediates/model__layers__2__post_attention_layernorm.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__2__mlp__gate_proj",
+      "file": "intermediates/model__layers__2__mlp__gate_proj.f32",
+      "shape": [
+        1,
+        6,
+        128
+      ],
+      "dtype": "f32",
+      "numel": 768,
+      "nbytes": 3072
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__2__mlp__up_proj",
+      "file": "intermediates/model__layers__2__mlp__up_proj.f32",
+      "shape": [
+        1,
+        6,
+        128
+      ],
+      "dtype": "f32",
+      "numel": 768,
+      "nbytes": 3072
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__2__mlp__down_proj",
+      "file": "intermediates/model__layers__2__mlp__down_proj.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__2__mlp",
+      "file": "intermediates/model__layers__2__mlp.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__3__input_layernorm",
+      "file": "intermediates/model__layers__3__input_layernorm.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__3__self_attn__q_proj",
+      "file": "intermediates/model__layers__3__self_attn__q_proj.f32",
+      "shape": [
+        1,
+        6,
+        128
+      ],
+      "dtype": "f32",
+      "numel": 768,
+      "nbytes": 3072
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__3__self_attn__q_norm",
+      "file": "intermediates/model__layers__3__self_attn__q_norm.f32",
+      "shape": [
+        1,
+        6,
+        2,
+        32
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__3__self_attn__k_proj",
+      "file": "intermediates/model__layers__3__self_attn__k_proj.f32",
+      "shape": [
+        1,
+        6,
+        32
+      ],
+      "dtype": "f32",
+      "numel": 192,
+      "nbytes": 768
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__3__self_attn__k_norm",
+      "file": "intermediates/model__layers__3__self_attn__k_norm.f32",
+      "shape": [
+        1,
+        6,
+        1,
+        32
+      ],
+      "dtype": "f32",
+      "numel": 192,
+      "nbytes": 768
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__3__self_attn__v_proj",
+      "file": "intermediates/model__layers__3__self_attn__v_proj.f32",
+      "shape": [
+        1,
+        6,
+        32
+      ],
+      "dtype": "f32",
+      "numel": 192,
+      "nbytes": 768
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__3__self_attn__o_proj",
+      "file": "intermediates/model__layers__3__self_attn__o_proj.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__3__self_attn__out0",
+      "file": "intermediates/model__layers__3__self_attn__out0.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__3__post_attention_layernorm",
+      "file": "intermediates/model__layers__3__post_attention_layernorm.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__3__mlp__gate_proj",
+      "file": "intermediates/model__layers__3__mlp__gate_proj.f32",
+      "shape": [
+        1,
+        6,
+        128
+      ],
+      "dtype": "f32",
+      "numel": 768,
+      "nbytes": 3072
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__3__mlp__up_proj",
+      "file": "intermediates/model__layers__3__mlp__up_proj.f32",
+      "shape": [
+        1,
+        6,
+        128
+      ],
+      "dtype": "f32",
+      "numel": 768,
+      "nbytes": 3072
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__3__mlp__down_proj",
+      "file": "intermediates/model__layers__3__mlp__down_proj.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__3__mlp",
+      "file": "intermediates/model__layers__3__mlp.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__4__input_layernorm",
+      "file": "intermediates/model__layers__4__input_layernorm.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__4__linear_attn__in_proj_qkv",
+      "file": "intermediates/model__layers__4__linear_attn__in_proj_qkv.f32",
+      "shape": [
+        1,
+        6,
+        128
+      ],
+      "dtype": "f32",
+      "numel": 768,
+      "nbytes": 3072
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__4__linear_attn__in_proj_z",
+      "file": "intermediates/model__layers__4__linear_attn__in_proj_z.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__4__linear_attn__in_proj_b",
+      "file": "intermediates/model__layers__4__linear_attn__in_proj_b.f32",
+      "shape": [
+        1,
+        6,
+        4
+      ],
+      "dtype": "f32",
+      "numel": 24,
+      "nbytes": 96
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__4__linear_attn__in_proj_a",
+      "file": "intermediates/model__layers__4__linear_attn__in_proj_a.f32",
+      "shape": [
+        1,
+        6,
+        4
+      ],
+      "dtype": "f32",
+      "numel": 24,
+      "nbytes": 96
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__4__linear_attn__norm",
+      "file": "intermediates/model__layers__4__linear_attn__norm.f32",
+      "shape": [
+        24,
+        16
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__4__linear_attn__out_proj",
+      "file": "intermediates/model__layers__4__linear_attn__out_proj.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__4__linear_attn",
+      "file": "intermediates/model__layers__4__linear_attn.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__4__post_attention_layernorm",
+      "file": "intermediates/model__layers__4__post_attention_layernorm.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__4__mlp__gate_proj",
+      "file": "intermediates/model__layers__4__mlp__gate_proj.f32",
+      "shape": [
+        1,
+        6,
+        128
+      ],
+      "dtype": "f32",
+      "numel": 768,
+      "nbytes": 3072
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__4__mlp__up_proj",
+      "file": "intermediates/model__layers__4__mlp__up_proj.f32",
+      "shape": [
+        1,
+        6,
+        128
+      ],
+      "dtype": "f32",
+      "numel": 768,
+      "nbytes": 3072
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__4__mlp__down_proj",
+      "file": "intermediates/model__layers__4__mlp__down_proj.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__4__mlp",
+      "file": "intermediates/model__layers__4__mlp.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__5__input_layernorm",
+      "file": "intermediates/model__layers__5__input_layernorm.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__5__linear_attn__in_proj_qkv",
+      "file": "intermediates/model__layers__5__linear_attn__in_proj_qkv.f32",
+      "shape": [
+        1,
+        6,
+        128
+      ],
+      "dtype": "f32",
+      "numel": 768,
+      "nbytes": 3072
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__5__linear_attn__in_proj_z",
+      "file": "intermediates/model__layers__5__linear_attn__in_proj_z.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__5__linear_attn__in_proj_b",
+      "file": "intermediates/model__layers__5__linear_attn__in_proj_b.f32",
+      "shape": [
+        1,
+        6,
+        4
+      ],
+      "dtype": "f32",
+      "numel": 24,
+      "nbytes": 96
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__5__linear_attn__in_proj_a",
+      "file": "intermediates/model__layers__5__linear_attn__in_proj_a.f32",
+      "shape": [
+        1,
+        6,
+        4
+      ],
+      "dtype": "f32",
+      "numel": 24,
+      "nbytes": 96
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__5__linear_attn__norm",
+      "file": "intermediates/model__layers__5__linear_attn__norm.f32",
+      "shape": [
+        24,
+        16
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__5__linear_attn__out_proj",
+      "file": "intermediates/model__layers__5__linear_attn__out_proj.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__5__linear_attn",
+      "file": "intermediates/model__layers__5__linear_attn.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__5__post_attention_layernorm",
+      "file": "intermediates/model__layers__5__post_attention_layernorm.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__5__mlp__gate_proj",
+      "file": "intermediates/model__layers__5__mlp__gate_proj.f32",
+      "shape": [
+        1,
+        6,
+        128
+      ],
+      "dtype": "f32",
+      "numel": 768,
+      "nbytes": 3072
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__5__mlp__up_proj",
+      "file": "intermediates/model__layers__5__mlp__up_proj.f32",
+      "shape": [
+        1,
+        6,
+        128
+      ],
+      "dtype": "f32",
+      "numel": 768,
+      "nbytes": 3072
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__5__mlp__down_proj",
+      "file": "intermediates/model__layers__5__mlp__down_proj.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__5__mlp",
+      "file": "intermediates/model__layers__5__mlp.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__6__input_layernorm",
+      "file": "intermediates/model__layers__6__input_layernorm.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__6__linear_attn__in_proj_qkv",
+      "file": "intermediates/model__layers__6__linear_attn__in_proj_qkv.f32",
+      "shape": [
+        1,
+        6,
+        128
+      ],
+      "dtype": "f32",
+      "numel": 768,
+      "nbytes": 3072
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__6__linear_attn__in_proj_z",
+      "file": "intermediates/model__layers__6__linear_attn__in_proj_z.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__6__linear_attn__in_proj_b",
+      "file": "intermediates/model__layers__6__linear_attn__in_proj_b.f32",
+      "shape": [
+        1,
+        6,
+        4
+      ],
+      "dtype": "f32",
+      "numel": 24,
+      "nbytes": 96
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__6__linear_attn__in_proj_a",
+      "file": "intermediates/model__layers__6__linear_attn__in_proj_a.f32",
+      "shape": [
+        1,
+        6,
+        4
+      ],
+      "dtype": "f32",
+      "numel": 24,
+      "nbytes": 96
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__6__linear_attn__norm",
+      "file": "intermediates/model__layers__6__linear_attn__norm.f32",
+      "shape": [
+        24,
+        16
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__6__linear_attn__out_proj",
+      "file": "intermediates/model__layers__6__linear_attn__out_proj.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__6__linear_attn",
+      "file": "intermediates/model__layers__6__linear_attn.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__6__post_attention_layernorm",
+      "file": "intermediates/model__layers__6__post_attention_layernorm.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__6__mlp__gate_proj",
+      "file": "intermediates/model__layers__6__mlp__gate_proj.f32",
+      "shape": [
+        1,
+        6,
+        128
+      ],
+      "dtype": "f32",
+      "numel": 768,
+      "nbytes": 3072
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__6__mlp__up_proj",
+      "file": "intermediates/model__layers__6__mlp__up_proj.f32",
+      "shape": [
+        1,
+        6,
+        128
+      ],
+      "dtype": "f32",
+      "numel": 768,
+      "nbytes": 3072
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__6__mlp__down_proj",
+      "file": "intermediates/model__layers__6__mlp__down_proj.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__6__mlp",
+      "file": "intermediates/model__layers__6__mlp.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__7__input_layernorm",
+      "file": "intermediates/model__layers__7__input_layernorm.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__7__self_attn__q_proj",
+      "file": "intermediates/model__layers__7__self_attn__q_proj.f32",
+      "shape": [
+        1,
+        6,
+        128
+      ],
+      "dtype": "f32",
+      "numel": 768,
+      "nbytes": 3072
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__7__self_attn__q_norm",
+      "file": "intermediates/model__layers__7__self_attn__q_norm.f32",
+      "shape": [
+        1,
+        6,
+        2,
+        32
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__7__self_attn__k_proj",
+      "file": "intermediates/model__layers__7__self_attn__k_proj.f32",
+      "shape": [
+        1,
+        6,
+        32
+      ],
+      "dtype": "f32",
+      "numel": 192,
+      "nbytes": 768
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__7__self_attn__k_norm",
+      "file": "intermediates/model__layers__7__self_attn__k_norm.f32",
+      "shape": [
+        1,
+        6,
+        1,
+        32
+      ],
+      "dtype": "f32",
+      "numel": 192,
+      "nbytes": 768
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__7__self_attn__v_proj",
+      "file": "intermediates/model__layers__7__self_attn__v_proj.f32",
+      "shape": [
+        1,
+        6,
+        32
+      ],
+      "dtype": "f32",
+      "numel": 192,
+      "nbytes": 768
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__7__self_attn__o_proj",
+      "file": "intermediates/model__layers__7__self_attn__o_proj.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__7__self_attn__out0",
+      "file": "intermediates/model__layers__7__self_attn__out0.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__7__post_attention_layernorm",
+      "file": "intermediates/model__layers__7__post_attention_layernorm.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__7__mlp__gate_proj",
+      "file": "intermediates/model__layers__7__mlp__gate_proj.f32",
+      "shape": [
+        1,
+        6,
+        128
+      ],
+      "dtype": "f32",
+      "numel": 768,
+      "nbytes": 3072
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__7__mlp__up_proj",
+      "file": "intermediates/model__layers__7__mlp__up_proj.f32",
+      "shape": [
+        1,
+        6,
+        128
+      ],
+      "dtype": "f32",
+      "numel": 768,
+      "nbytes": 3072
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__7__mlp__down_proj",
+      "file": "intermediates/model__layers__7__mlp__down_proj.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__7__mlp",
+      "file": "intermediates/model__layers__7__mlp.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__norm",
+      "file": "intermediates/model__norm.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "greedy_step00__logits",
+      "file": "intermediates/greedy_step00__logits.f32",
+      "shape": [
+        256
+      ],
+      "dtype": "f32",
+      "numel": 256,
+      "nbytes": 1024
+    },
+    {
+      "group": "intermediates",
+      "name": "greedy_step01__logits",
+      "file": "intermediates/greedy_step01__logits.f32",
+      "shape": [
+        256
+      ],
+      "dtype": "f32",
+      "numel": 256,
+      "nbytes": 1024
+    },
+    {
+      "group": "intermediates",
+      "name": "greedy_step02__logits",
+      "file": "intermediates/greedy_step02__logits.f32",
+      "shape": [
+        256
+      ],
+      "dtype": "f32",
+      "numel": 256,
+      "nbytes": 1024
+    },
+    {
+      "group": "intermediates",
+      "name": "greedy_step03__logits",
+      "file": "intermediates/greedy_step03__logits.f32",
+      "shape": [
+        256
+      ],
+      "dtype": "f32",
+      "numel": 256,
+      "nbytes": 1024
+    },
+    {
+      "group": "intermediates",
+      "name": "greedy_step04__logits",
+      "file": "intermediates/greedy_step04__logits.f32",
+      "shape": [
+        256
+      ],
+      "dtype": "f32",
+      "numel": 256,
+      "nbytes": 1024
+    },
+    {
+      "group": "intermediates",
+      "name": "greedy_step05__logits",
+      "file": "intermediates/greedy_step05__logits.f32",
+      "shape": [
+        256
+      ],
+      "dtype": "f32",
+      "numel": 256,
+      "nbytes": 1024
+    },
+    {
+      "group": "intermediates",
+      "name": "greedy_step06__logits",
+      "file": "intermediates/greedy_step06__logits.f32",
+      "shape": [
+        256
+      ],
+      "dtype": "f32",
+      "numel": 256,
+      "nbytes": 1024
+    },
+    {
+      "group": "intermediates",
+      "name": "greedy_step07__logits",
+      "file": "intermediates/greedy_step07__logits.f32",
+      "shape": [
+        256
+      ],
+      "dtype": "f32",
+      "numel": 256,
+      "nbytes": 1024
+    },
+    {
+      "group": "intermediates",
+      "name": "greedy_step08__logits",
+      "file": "intermediates/greedy_step08__logits.f32",
+      "shape": [
+        256
+      ],
+      "dtype": "f32",
+      "numel": 256,
+      "nbytes": 1024
+    },
+    {
+      "group": "intermediates",
+      "name": "greedy_step09__logits",
+      "file": "intermediates/greedy_step09__logits.f32",
+      "shape": [
+        256
+      ],
+      "dtype": "f32",
+      "numel": 256,
+      "nbytes": 1024
+    },
+    {
+      "group": "intermediates",
+      "name": "greedy_step10__logits",
+      "file": "intermediates/greedy_step10__logits.f32",
+      "shape": [
+        256
+      ],
+      "dtype": "f32",
+      "numel": 256,
+      "nbytes": 1024
+    },
+    {
+      "group": "intermediates",
+      "name": "greedy_step11__logits",
+      "file": "intermediates/greedy_step11__logits.f32",
+      "shape": [
+        256
+      ],
+      "dtype": "f32",
+      "numel": 256,
+      "nbytes": 1024
+    },
+    {
+      "group": "intermediates",
+      "name": "greedy_step12__logits",
+      "file": "intermediates/greedy_step12__logits.f32",
+      "shape": [
+        256
+      ],
+      "dtype": "f32",
+      "numel": 256,
+      "nbytes": 1024
+    },
+    {
+      "group": "intermediates",
+      "name": "greedy_step13__logits",
+      "file": "intermediates/greedy_step13__logits.f32",
+      "shape": [
+        256
+      ],
+      "dtype": "f32",
+      "numel": 256,
+      "nbytes": 1024
+    },
+    {
+      "group": "intermediates",
+      "name": "greedy_step14__logits",
+      "file": "intermediates/greedy_step14__logits.f32",
+      "shape": [
+        256
+      ],
+      "dtype": "f32",
+      "numel": 256,
+      "nbytes": 1024
+    },
+    {
+      "group": "intermediates",
+      "name": "greedy_step15__logits",
+      "file": "intermediates/greedy_step15__logits.f32",
+      "shape": [
+        256
+      ],
+      "dtype": "f32",
+      "numel": 256,
+      "nbytes": 1024
+    }
+  ],
+  "greedy": {
+    "steps": [
+      {
+        "step": 0,
+        "input_len": 6,
+        "argmax_token": 68,
+        "topk_tokens": [
+          68,
+          81,
+          45,
+          9,
+          191
+        ],
+        "topk_logits": [
+          0.5413749814033508,
+          0.4533666670322418,
+          0.42147305607795715,
+          0.4021020829677582,
+          0.38863447308540344
+        ],
+        "logit_sum": 4.025261402130127,
+        "logit_max": 0.5413749814033508
+      },
+      {
+        "step": 1,
+        "input_len": 7,
+        "argmax_token": 108,
+        "topk_tokens": [
+          108,
+          137,
+          172,
+          156,
+          41
+        ],
+        "topk_logits": [
+          0.3879137635231018,
+          0.37209171056747437,
+          0.3416573107242584,
+          0.3114434778690338,
+          0.3109867572784424
+        ],
+        "logit_sum": -0.6665626764297485,
+        "logit_max": 0.3879137635231018
+      },
+      {
+        "step": 2,
+        "input_len": 8,
+        "argmax_token": 80,
+        "topk_tokens": [
+          80,
+          119,
+          35,
+          49,
+          120
+        ],
+        "topk_logits": [
+          0.46731865406036377,
+          0.36790311336517334,
+          0.3339552879333496,
+          0.3181160092353821,
+          0.3158828914165497
+        ],
+        "logit_sum": 2.2416515350341797,
+        "logit_max": 0.46731865406036377
+      },
+      {
+        "step": 3,
+        "input_len": 9,
+        "argmax_token": 180,
+        "topk_tokens": [
+          180,
+          27,
+          62,
+          88,
+          120
+        ],
+        "topk_logits": [
+          0.5044670701026917,
+          0.44404229521751404,
+          0.35216206312179565,
+          0.3417418599128723,
+          0.34140825271606445
+        ],
+        "logit_sum": -2.2800445556640625,
+        "logit_max": 0.5044670701026917
+      },
+      {
+        "step": 4,
+        "input_len": 10,
+        "argmax_token": 112,
+        "topk_tokens": [
+          112,
+          182,
+          137,
+          71,
+          149
+        ],
+        "topk_logits": [
+          0.5867703557014465,
+          0.530328631401062,
+          0.49044734239578247,
+          0.4328649938106537,
+          0.3973318338394165
+        ],
+        "logit_sum": 1.8951528072357178,
+        "logit_max": 0.5867703557014465
+      },
+      {
+        "step": 5,
+        "input_len": 11,
+        "argmax_token": 118,
+        "topk_tokens": [
+          118,
+          248,
+          79,
+          115,
+          42
+        ],
+        "topk_logits": [
+          0.3627280294895172,
+          0.35874903202056885,
+          0.35785171389579773,
+          0.32475730776786804,
+          0.3153219521045685
+        ],
+        "logit_sum": 0.2810978889465332,
+        "logit_max": 0.3627280294895172
+      },
+      {
+        "step": 6,
+        "input_len": 12,
+        "argmax_token": 197,
+        "topk_tokens": [
+          197,
+          115,
+          248,
+          79,
+          54
+        ],
+        "topk_logits": [
+          0.4891412556171417,
+          0.4124719798564911,
+          0.35025861859321594,
+          0.33982008695602417,
+          0.3374212682247162
+        ],
+        "logit_sum": 1.9189248085021973,
+        "logit_max": 0.4891412556171417
+      },
+      {
+        "step": 7,
+        "input_len": 13,
+        "argmax_token": 147,
+        "topk_tokens": [
+          147,
+          167,
+          150,
+          209,
+          94
+        ],
+        "topk_logits": [
+          0.5015857815742493,
+          0.4550023376941681,
+          0.3698770999908447,
+          0.3639088571071625,
+          0.362373948097229
+        ],
+        "logit_sum": 1.0167176723480225,
+        "logit_max": 0.5015857815742493
+      },
+      {
+        "step": 8,
+        "input_len": 14,
+        "argmax_token": 167,
+        "topk_tokens": [
+          167,
+          253,
+          119,
+          9,
+          124
+        ],
+        "topk_logits": [
+          0.4282327890396118,
+          0.4001016318798065,
+          0.3945196270942688,
+          0.3934057056903839,
+          0.3601386845111847
+        ],
+        "logit_sum": 1.0570063591003418,
+        "logit_max": 0.4282327890396118
+      },
+      {
+        "step": 9,
+        "input_len": 15,
+        "argmax_token": 190,
+        "topk_tokens": [
+          190,
+          55,
+          48,
+          21,
+          78
+        ],
+        "topk_logits": [
+          0.4211835563182831,
+          0.3893338143825531,
+          0.3859110176563263,
+          0.3575454354286194,
+          0.34215644001960754
+        ],
+        "logit_sum": -1.906848430633545,
+        "logit_max": 0.4211835563182831
+      },
+      {
+        "step": 10,
+        "input_len": 16,
+        "argmax_token": 161,
+        "topk_tokens": [
+          161,
+          86,
+          211,
+          47,
+          43
+        ],
+        "topk_logits": [
+          0.40276315808296204,
+          0.3661162555217743,
+          0.3090696930885315,
+          0.30888932943344116,
+          0.30485203862190247
+        ],
+        "logit_sum": -0.2288993000984192,
+        "logit_max": 0.40276315808296204
+      },
+      {
+        "step": 11,
+        "input_len": 17,
+        "argmax_token": 252,
+        "topk_tokens": [
+          252,
+          254,
+          78,
+          213,
+          105
+        ],
+        "topk_logits": [
+          0.44694098830223083,
+          0.33237966895103455,
+          0.33210474252700806,
+          0.30846503376960754,
+          0.293607622385025
+        ],
+        "logit_sum": -4.461009979248047,
+        "logit_max": 0.44694098830223083
+      },
+      {
+        "step": 12,
+        "input_len": 18,
+        "argmax_token": 94,
+        "topk_tokens": [
+          94,
+          120,
+          112,
+          150,
+          32
+        ],
+        "topk_logits": [
+          0.4211396872997284,
+          0.417357861995697,
+          0.39796584844589233,
+          0.39480745792388916,
+          0.3730350732803345
+        ],
+        "logit_sum": 1.9083073139190674,
+        "logit_max": 0.4211396872997284
+      },
+      {
+        "step": 13,
+        "input_len": 19,
+        "argmax_token": 42,
+        "topk_tokens": [
+          42,
+          7,
+          26,
+          181,
+          108
+        ],
+        "topk_logits": [
+          0.42686352133750916,
+          0.3614320158958435,
+          0.35974329710006714,
+          0.3474310636520386,
+          0.34136709570884705
+        ],
+        "logit_sum": -6.477931976318359,
+        "logit_max": 0.42686352133750916
+      },
+      {
+        "step": 14,
+        "input_len": 20,
+        "argmax_token": 241,
+        "topk_tokens": [
+          241,
+          51,
+          136,
+          93,
+          161
+        ],
+        "topk_logits": [
+          0.39277535676956177,
+          0.35453182458877563,
+          0.3397439420223236,
+          0.3383467495441437,
+          0.33396026492118835
+        ],
+        "logit_sum": 1.2601853609085083,
+        "logit_max": 0.39277535676956177
+      },
+      {
+        "step": 15,
+        "input_len": 21,
+        "argmax_token": 75,
+        "topk_tokens": [
+          75,
+          148,
+          86,
+          159,
+          210
+        ],
+        "topk_logits": [
+          0.48898693919181824,
+          0.34998440742492676,
+          0.3415992856025696,
+          0.3367932438850403,
+          0.3339986205101013
+        ],
+        "logit_sum": 2.838343620300293,
+        "logit_max": 0.48898693919181824
+      }
+    ],
+    "final_ids": [
+      37,
+      235,
+      140,
+      72,
+      255,
+      137,
+      68,
+      108,
+      80,
+      180,
+      112,
+      118,
+      197,
+      147,
+      167,
+      190,
+      161,
+      252,
+      94,
+      42,
+      241,
+      75
+    ]
+  }
+}

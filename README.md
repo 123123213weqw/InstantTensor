@@ -15,6 +15,19 @@ Siphon is an **ultra-fast, distributed Safetensors loader** designed to maximize
 
 See [Benchmark](./docs/benchmark.md) for full benchmarks.
 
+### Companion trees
+
+This repository also carries two self-contained trees that are **not** part of
+the Python/C++ extension:
+
+| Tree | What it is |
+|---|---|
+| [`rust-qwen-engine/`](rust-qwen-engine/) | A **Rust** safetensors reader built around `io_uring` + `O_DIRECT`. Explores load throughput and cold-start cost from the other side of the language boundary, with a built-in fuzzer. |
+| [`qwen35-forward/`](qwen35-forward/) | Golden-reference generator and a Rust comparator for validating a from-scratch Qwen3.5 forward pass, down to per-tensor and per-token granularity. |
+
+Both build with `cargo` and need no CUDA. They share no code with `siphon/`, so
+neither affects the extension's build.
+
 ### Quickstart
 
 ```python

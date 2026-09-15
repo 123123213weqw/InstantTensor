@@ -1,0 +1,11 @@
+[package]
+name = "stloader"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "safetensors reader: header parsing, aligned read planning, O_DIRECT io_uring engine"
+
+[dependencies]
+serde_json = "1"
+libc = "0.2"
+io-uring = "0.7"
