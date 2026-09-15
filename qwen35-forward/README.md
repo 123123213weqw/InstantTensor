@@ -39,8 +39,12 @@ gdn/                 the whole model
   attention.rs       the full-attention mixer (per-head q/gate split, rope, GQA)
   layer.rs           one layer: input norm, either mixer, MLP, both residuals
   model.rs           embedding, the layer stack, final norm, head, greedy decode
-  loader.rs          bundle -> weights, and the layer -> capture-index mapping
-  gdncheck <bundle> [--layer N] [--chain] [--model] [--verbose]
+  loader.rs          golden bundle -> weights, and the layer -> capture-index mapping
+  safetensors.rs     a self-contained safetensors reader (bf16/f16/f32)
+  real.rs            a real checkpoint -> weights, with config cross-checks
+  gdncheck <bundle>  [--layer N] [--chain] [--model] [--verbose]   (golden)
+  qwenrun  <model-dir> [--prompt ids] [--tokens N] [--compare FILE]  (real)
+tools/ref_qwen35.py  the transformers reference: logits, per-layer dumps, greedy
 golden_tiny/         committed bundle (gain=1.0, for per-tensor comparison)
 golden_sensitive/    committed bundle (gain=300, for token-trace comparison)
 ```
@@ -562,6 +566,131 @@ is judged at the same *relative* stringency rather than a looser or stricter one
 | final norm applied twice | model check 10 (`final norm`) |
 
 Plus, from the earlier steps, the capture-index and residual bugs, all still caught.
+
+## Step six: a real checkpoint
+
+Everything above validates against a synthetic model. This step runs a real one:
+
+```bash
+cargo build --release
+./target/release/qwenrun /path/to/Qwen3.5-0.8B --prompt 9419 --tokens 10
+./target/release/qwenrun /path/to/Qwen3.5-0.8B --prompt 9419 --compare ref/logits_last.f32
+python tools/ref_qwen35.py /path/to/Qwen3.5-0.8B ref --prompt 9419 --greedy 10
+```
+
+`Qwen/Qwen3.5-0.8B` is the smallest official `qwen3_5` checkpoint: 24 layers, 18
+`linear_attention` + 6 `full_attention`, hidden 1024, vocab 248320, one 1.63 GiB
+bf16 shard.
+
+### It reproduces the reference token for token
+
+```
+   loaded in 4.5s
+   prefix `model.language_model.`  config from text_config  1 shard(s)  488 tensors
+   dtypes: BF16=452 F32=36
+   unused sub-trees: multi-token-prediction head=15 vision tower=153
+   head: tied to embed_tokens
+   24 layers (18 linear_attention, 6 full_attention), hidden=1024 vocab=248320
+
+   compare vs ref/logits_last.f32
+     max abs diff      1.717e-5  (tolerance 3e-5)
+     argmax            mine=11 ref=11
+     top-10 ordering  identical
+     => PASS
+
+   greedy:  11,271,40,1044,3133,440,264,12654,5148,421
+   ref:     11,271,40,1044,3133,440,264,12654,5148,421
+```
+
+Same tokens, all ten steps, on a checkpoint the engine has never seen.
+
+### What a real checkpoint needs that the golden bundle did not
+
+| | golden bundle | real checkpoint |
+|---|---|---|
+| names | `model__layers__0__linear_attn__in_proj_qkv__weight` | `model.language_model.layers.0.linear_attn.in_proj_qkv.weight` |
+| dtype | `f32` | `bf16` (452 tensors) and `f32` (36) |
+| layout | one file per tensor | one flat shard |
+| extras | none | a vision tower (153 tensors) and an MTP head (15) |
+| head | a separate `lm_head` | tied to `embed_tokens` |
+
+So `real.rs` maps *structure* rather than strings, and `safetensors.rs` is a
+self-contained reader with the same validation discipline as the streaming loader:
+`end - start == numel * dtype.size()`, every range inside the file, and reversed
+offsets rejected — a reversed pair underflows into an enormous length, which is how
+a reader ends up allocating terabytes.
+
+Dimensions are read off tensor shapes and then **cross-checked against the config**.
+A disagreement is an error, not something to average over:
+
+```
+   check!("num_v_heads", num_v_heads_cfg, num_v_heads);
+   check!("key_dim = num_k_heads * head_k_dim", num_k_heads_cfg * head_k_dim_cfg, key_dim);
+   check!("q_proj out = num_heads * head_dim * 2", num_heads * head_dim * 2, q_out);
+```
+
+### The disagreement was mine, and it was an accumulation bug
+
+The first run matched `argmax` and the top-10 ordering but differed by **1.016e-4**
+in the logits — four times the reference's own CPU-vs-GPU disagreement. Rather than
+wave that off as "float noise", the per-layer dump localised it: the error was
+*bounded and gradual* (5e-7 to 2e-5 per layer, no jumps), which rules out a wrong
+operator and points at precision.
+
+The cause was the dot products. A naive `f32` loop accumulates `n` products with
+worst-case error `n * eps`; for `n = 3584` that is a relative error around 8e-4. BLAS
+does not accumulate that way — blocked or pairwise reductions grow like `log n * eps`,
+roughly two orders of magnitude smaller. So "same computation, different order" was
+wrong: a sequential loop is a measurably worse computation.
+
+Accumulating in `f64` fixes it, and the measurement is unambiguous:
+
+| | vs float64 ground truth |
+|---|---|
+| **this engine** | **5.901e-06** |
+| reference, GPU f32 | 1.621e-05 |
+| reference, CPU f32 | 2.623e-05 |
+
+**The engine is now 2.7x closer to the true value than the GPU reference and 4.4x
+closer than the CPU one.** Against the GPU reference the logits differ by 1.717e-5,
+which is below the 2.46e-5 by which the reference disagrees with *itself* — so what
+remains is the reference's error, not this engine's.
+
+That also settles the tolerance. A `bf16` checkpoint loaded into an `f32` reference
+is still an `f32` computation, and `f32` does not reproduce itself across
+implementations. A bound tighter than the reference's own spread is not a test of
+correctness; it demands that this engine agree with the reference more closely than
+the reference agrees with itself. `qwenrun` defaults to `3e-5` and documents why.
+
+Two gates are reported separately, because they fail for different reasons:
+`argmax` plus top-k ordering is the functional test (differing tokens mean a wrong
+operator), and the value bound is the numerical one.
+
+### The one-piece-of-work question: bf16 storage
+
+The checkpoint stores `bf16`. Widening to `f32` is exact — bfloat16 is the top 16
+bits of an `f32`, so every bf16 value is representable and no rounding occurs. That is
+checked by a round-trip test, and it is why loading into an `f32` reference removes
+the storage dtype from the comparison instead of adding to it.
+
+### Performance, honestly
+
+Roughly 0.3 s/token for a 0.8B model with no KV or recurrent cache, so each step
+re-runs the whole sequence:
+
+```
+   forward: 1.51s for 5 token(s)  (0.303s/token)
+     step  0  len=1    -> 11     (0.94s elapsed)
+     ...
+     step  9  len=10   -> 421    (9.88s elapsed)
+```
+
+Matmuls are spread over up to 32 threads by row, which is bit-identical to the
+serial path (a unit test asserts this bit for bit, because a reduction-order change
+would make results irreproducible). This is a correctness-first implementation: the
+flops are roughly 1.6 GFLOP/token, so there is a lot of headroom. Caching the
+recurrent and KV state is the obvious next step and removes the quadratic
+re-processing, but it changes what is *stored*, not what is *computed*.
 
 ## The two committed bundles
 

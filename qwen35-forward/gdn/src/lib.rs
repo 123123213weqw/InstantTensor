@@ -42,6 +42,8 @@ pub mod attention;
 pub mod layer;
 pub mod loader;
 pub mod model;
+pub mod real;
+pub mod safetensors;
 
 /// Default RMSNorm epsilon. The reference reads it from `config.rms_norm_eps`,
 /// which is `1e-6` for every qwen35 configuration checked; `GdnConfig::eps`
@@ -104,28 +106,124 @@ pub struct GdnWeights {
 // primitives
 // --------------------------------------------------------------------------- //
 
+/// Dot product of two equal-length `f32` slices, accumulated in `f64`.
+///
+/// # Why this is not just cosmetic
+///
+/// A naive `f32` accumulation of `n` products carries a worst-case error of about
+/// `n * eps`, because every partial sum rounds. For the reductions in this model --
+/// `n = 1024` for `hidden`, `3584` for `intermediate_size` -- that is a relative error
+/// around `2e-4` and `8e-4`, and it is applied once per matmul across 24 layers.
+///
+/// BLAS does not accumulate this way: it uses blocked or pairwise reductions, whose
+/// error grows like `log n * eps`, roughly two orders of magnitude smaller here. So a
+/// sequential loop is not "the same computation in different order" -- it is a
+/// measurably worse one, and it shows up as the engine disagreeing with the reference
+/// by several times the reference's own disagreement with itself.
+///
+/// Accumulating in `f64` removes the question: the products are exact (an `f32`
+/// times an `f32` is representable in `f64`), and the sum of `n` of them in `f64`
+/// carries an error of `n * eps_f64`, which is below `f32` resolution for any `n`
+/// this model uses. The result is a dot product that is correctly rounded to `f32`,
+/// so the remaining disagreement with a reference is the reference's own error.
+#[inline]
+pub fn dot(a: &[f32], b: &[f32]) -> f32 {
+    debug_assert_eq!(a.len(), b.len());
+    let mut acc = 0f64;
+    for i in 0..a.len() {
+        acc += a[i] as f64 * b[i] as f64;
+    }
+    acc as f32
+}
+
+/// Multiply-accumulate work above which `linear` spreads rows over threads.
+///
+/// Small matrices are left alone: a real model does thousands of these calls and
+/// the spawn cost dominates for anything the size of a test fixture.
+const PARALLEL_MIN_WORK: usize = 1 << 18;
+
+/// Upper bound on threads used per call. The box has 88 cores, but a single
+/// matmul is memory-bound well before that and oversubscribing only adds
+/// contention with whatever else is running.
+const MAX_THREADS: usize = 32;
+
 /// `y[r, o] = sum_i w[o, i] * x[r, i] (+ bias[o])`
 ///
 /// `w` is `[out_dim, in_dim]`, matching `nn.Linear`'s storage.
-pub fn linear(w: &[f32], bias: Option<&[f32]>, x: &[f32], rows: usize, in_dim: usize, out_dim: usize) -> Vec<f32> {
+///
+/// Rows are independent, so the parallel path splits the output by row. Each output
+/// element is still accumulated in the same order over `i`, so the result is
+/// bit-identical to the serial path -- threading changes throughput, not numerics.
+pub fn linear(
+    w: &[f32],
+    bias: Option<&[f32]>,
+    x: &[f32],
+    rows: usize,
+    in_dim: usize,
+    out_dim: usize,
+) -> Vec<f32> {
     assert_eq!(w.len(), out_dim * in_dim, "linear weight size");
     assert_eq!(x.len(), rows * in_dim, "linear input size");
     let mut y = vec![0f32; rows * out_dim];
-    for r in 0..rows {
+    if rows == 0 || out_dim == 0 {
+        return y;
+    }
+
+    let row = |r: usize, yr: &mut [f32]| {
         let xr = &x[r * in_dim..(r + 1) * in_dim];
-        let yr = &mut y[r * out_dim..(r + 1) * out_dim];
         for (o, yo) in yr.iter_mut().enumerate() {
             let wo = &w[o * in_dim..(o + 1) * in_dim];
-            let mut acc = 0f32;
+            // f64 accumulation: see `dot` for why a plain f32 loop is measurably
+            // worse rather than merely differently ordered.
+            let mut acc = 0f64;
             for i in 0..in_dim {
-                acc += wo[i] * xr[i];
+                acc += wo[i] as f64 * xr[i] as f64;
             }
             if let Some(b) = bias {
-                acc += b[o];
+                acc += b[o] as f64;
             }
-            *yo = acc;
+            *yo = acc as f32;
         }
+    };
+
+    let work = rows.saturating_mul(in_dim).saturating_mul(out_dim);
+    let nthreads = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(1)
+        .min(MAX_THREADS);
+    if nthreads <= 1 || work < PARALLEL_MIN_WORK {
+        for (r, yr) in y.chunks_mut(out_dim).enumerate() {
+            row(r, yr);
+        }
+        return y;
     }
+
+    let chunk = rows.div_ceil(nthreads).max(1);
+    let xref = x;
+    let wref = w;
+    let biasref = bias;
+    std::thread::scope(|s| {
+        for (ci, ychunk) in y.chunks_mut(chunk * out_dim).enumerate() {
+            let r0 = ci * chunk;
+            s.spawn(move || {
+                for (rr, yr) in ychunk.chunks_mut(out_dim).enumerate() {
+                    let r = r0 + rr;
+                    let xr = &xref[r * in_dim..(r + 1) * in_dim];
+                    for (o, yo) in yr.iter_mut().enumerate() {
+                        let wo = &wref[o * in_dim..(o + 1) * in_dim];
+                        let mut acc = 0f64;
+                        for i in 0..in_dim {
+                            acc += wo[i] as f64 * xr[i] as f64;
+                        }
+                        if let Some(b) = biasref {
+                            acc += b[o] as f64;
+                        }
+                        *yo = acc as f32;
+                    }
+                }
+            });
+        }
+    });
     y
 }
 
@@ -140,11 +238,12 @@ pub fn rmsnorm_1plus(w: &[f32], x: &[f32], rows: usize, dim: usize, eps: f32) ->
     for r in 0..rows {
         let xr = &x[r * dim..(r + 1) * dim];
         let yr = &mut y[r * dim..(r + 1) * dim];
-        let mut ss = 0f32;
+        // f64 sum of squares, for the same reason as `dot`.
+        let mut ss = 0f64;
         for v in xr {
-            ss += v * v;
+            ss += *v as f64 * *v as f64;
         }
-        let inv = 1.0f32 / (ss / dim as f32 + eps).sqrt();
+        let inv = 1.0f32 / ((ss / dim as f64) as f32 + eps).sqrt();
         for i in 0..dim {
             yr[i] = xr[i] * inv * (1.0 + w[i]);
         }
@@ -165,11 +264,11 @@ pub fn rmsnorm_gated(w: &[f32], x: &[f32], z: &[f32], rows: usize, dim: usize, e
         let xr = &x[r * dim..(r + 1) * dim];
         let zr = &z[r * dim..(r + 1) * dim];
         let yr = &mut y[r * dim..(r + 1) * dim];
-        let mut ss = 0f32;
+        let mut ss = 0f64;
         for v in xr {
-            ss += v * v;
+            ss += *v as f64 * *v as f64;
         }
-        let inv = 1.0f32 / (ss / dim as f32 + eps).sqrt();
+        let inv = 1.0f32 / ((ss / dim as f64) as f32 + eps).sqrt();
         for i in 0..dim {
             let xhat = xr[i] * inv;
             let g = zr[i];
@@ -545,6 +644,49 @@ mod tests {
         }
         let z = bct_to_btc(&y, b, c, t);
         assert_eq!(x, z, "round trip");
+    }
+
+    /// Threading splits by row and leaves each output element's accumulation order
+    /// untouched, so the parallel path must agree with the serial one bit for bit.
+    /// A test that only compared within a tolerance would not notice a reduction
+    /// order change, which is exactly what would make results irreproducible.
+    #[test]
+    fn parallel_linear_is_bit_identical_to_serial() {
+        let (rows, in_dim, out_dim) = (200usize, 64usize, 40usize);
+        // Enough work to clear the threshold, so the parallel branch is taken.
+        assert!(rows * in_dim * out_dim >= super::PARALLEL_MIN_WORK);
+        let w: Vec<f32> = (0..out_dim * in_dim)
+            .map(|i| ((i * 2654435761) % 1000) as f32 / 500.0 - 1.0)
+            .collect();
+        let x: Vec<f32> = (0..rows * in_dim)
+            .map(|i| ((i * 40503) % 997) as f32 / 500.0 - 1.0)
+            .collect();
+
+        let par = linear(&w, None, &x, rows, in_dim, out_dim);
+
+        // Reproduce the serial reduction exactly, with the same f64 accumulator the
+        // implementation uses. The property under test is that threading does not
+        // change the result, so the two paths must differ in *scheduling* only.
+        let mut ser = vec![0f32; rows * out_dim];
+        for r in 0..rows {
+            for o in 0..out_dim {
+                let mut acc = 0f64;
+                for i in 0..in_dim {
+                    acc += w[o * in_dim + i] as f64 * x[r * in_dim + i] as f64;
+                }
+                ser[r * out_dim + o] = acc as f32;
+            }
+        }
+        assert_eq!(par.len(), ser.len());
+        for i in 0..par.len() {
+            assert_eq!(
+                par[i].to_bits(),
+                ser[i].to_bits(),
+                "index {i}: parallel {} vs serial {}",
+                par[i],
+                ser[i]
+            );
+        }
     }
 
     #[test]
