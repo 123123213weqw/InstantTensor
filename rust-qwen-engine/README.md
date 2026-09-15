@@ -1,212 +1,240 @@
-# rust-qwen-engine — 加载层（第一章）
+# rust-qwen-engine — the loading layer
 
-用 Rust 重写 safetensors 权重加载层。**目标不是让硬盘更快，而是消灭 Python 启动开销。**
+A Rust rewrite of the safetensors weight-loading layer. **The goal is not to
+make the disk faster; it is to remove Python start-up cost.**
 
-## 为什么要做
+## Why
 
-实测拆解（7.2b 冷拉起，Python 基线）：
+Measured breakdown of a 7.2B cold start against a Python baseline:
 
-| 段 | 耗时 | 占比 | 成因 |
+| Stage | Time | Share | Cause |
 |---|---|---|---|
-| `import torch` | 0.665s | 13.5% | Python 解释器 + C 扩展导入 |
-| `load_repo` | 1.871s | 37.9% | Python 模块导入机 |
-| 建 447 个量化模块 | 0.666s | 13.5% | Python 对象构造 |
-| **IT 读入** | 1.682s | 34.1% | 磁盘 I/O，**已达 98% 盘顶** |
-| 合计 | **4.933s** | | |
+| `import torch` | 0.665 s | 13.5% | Python interpreter + C-extension import |
+| `load_repo` | 1.871 s | 37.9% | Python module import machinery |
+| Building 447 quantized modules | 0.666 s | 13.5% | Python object construction |
+| **IT read** | 1.682 s | 34.1% | Disk I/O, **already at 98% of the device ceiling** |
+| Total | **4.933 s** | | |
 
-固定成本 `F ≈ 2.8s` 全部来自 Python 运行时；I/O 那 34.1% 已经吃到盘顶（4.25 / 4.33 GB/s）。
-**Rust 能砍掉 3.202s（64.9%），对 I/O 零贡献。**
-
-```
-现在:  F 2.80s + W 2.74s = 5.54s  →  1.58x
-Rust:  F 0.40s + W 2.74s = 3.14s  →  ~2.8x
-```
-
-验收口径：**7.2b 冷拉起 5.54s → 3.2s**（最终数字在 4080 上测；开发在 V100 上做）。
-
-## 架构
+The fixed cost `F ≈ 2.8 s` is entirely Python runtime. The 34.1% spent on I/O is
+already at the disk ceiling (4.25 / 4.33 GB/s). **Rust removes 3.202 s (64.9%)
+and contributes nothing to I/O.**
 
 ```
-crates/stloader/         库
-  header.rs   safetensors 头解析：8B LE 长度 + JSON；多分片 + index.json
-  plan.rs     张量字节区间 → 块对齐读请求（合并相邻张量）
-  reader.rs   io_uring + O_DIRECT，深度受限、buffer 池复用
-  cache.rs    posix_fadvise 驱逐 + mincore 验证驻留（冷缓存可信度）
-  aligned.rs  显式对齐的缓冲区分配
-crates/stbench/          CLI：list / read / verify
-tools/                   Python 参考工具（GGUF 检查、对齐分析）
+today:  F 2.80s + W 2.74s = 5.54s  ->  1.58x
+Rust:   F 0.40s + W 2.74s = 3.14s  ->  ~2.8x   (conservative projection)
+Rust:   F 0.01s + W 2.74s = 2.75s  ->  ~3.2x   (measured; see "Start-up cost")
 ```
 
-### 关键设计：为什么需要合并读请求
+Acceptance target: **7.2B cold start, 5.54 s → 3.2 s.** The final number has to
+be taken on the 4080 (4.33 GB/s device); development and verification happen on
+a V100 (2.2 GB/s), where the proportions differ.
 
-safetensors 里张量是紧排的，但**头部长度只保证 8 字节对齐**，所以张量起始偏移几乎不可能是 4096 对齐的。`O_DIRECT` 要求 offset 和 length 都按块对齐，于是每个张量都要向外取整。
-
-实测（`Qwen3.8-27B`，18 分片，1199 张量，51.747 GiB）：
+## Layout
 
 ```
-internal gaps = 0B    head = 0B    tail = 0B      ← 完全紧排，无空洞
-unaligned offset: 1199/1199 (100.0%)              ← header 长度不是 4096 倍数
+crates/stloader/         library
+  header.rs   safetensors header parsing: 8-byte LE length + JSON;
+              multiple shards and index.json
+  plan.rs     tensor byte ranges -> block-aligned read requests (merging)
+  reader.rs   io_uring + O_DIRECT, bounded depth, pooled buffers
+  cache.rs    posix_fadvise eviction + mincore verification
+  aligned.rs  explicitly aligned buffer allocation
+crates/stbench/          CLI: list / read / verify / selftest / fuzz
+tools/                   Python reference tools (GGUF inspection, alignment)
+```
+
+### Why read requests must be merged
+
+safetensors packs tensors back-to-back, but the header length is only guaranteed
+to be 8-byte aligned, so a tensor's start offset is almost never 4096-aligned.
+`O_DIRECT` requires both offset and length to be block-aligned, which forces
+every tensor to be rounded outward.
+
+Measured on `Qwen3.8-27B` (18 shards, 1199 tensors, 51.747 GiB):
+
+```
+internal gaps = 0B    head = 0B    tail = 0B      <- perfectly packed
+unaligned offset: 1199/1199 (100.0%)              <- header length is not a multiple of 4096
 unaligned size:    533/1199 (44.5%)
-requests: naive=1199  →  coalesced=18             ← 每分片 1 次
-read amplification = 1.0000x                      ← 零放大
+requests: naive=1199  ->  coalesced=18             <- one per shard
+read amplification = 1.0000x                      <- zero waste
 ```
 
-**合并后零浪费。** 这是 `plan.rs` 存在的理由；不合并会退化成 1199 次请求。
+**Merging wastes nothing.** That is why `plan.rs` exists; without merging this
+degenerates to 1199 requests.
 
-## 已验证
+## Verified
 
-| 项 | 方法 | 结果 |
+| Item | Method | Result |
 |---|---|---|
-| 头解析正确性 | Rust 输出 vs Python 独立实现 | **完全一致**（1199 张量、51.747 GiB、18 请求、1.0000x、BF16×1199、index.json 1199 条 0 缺失） |
-| 头解析速度 | 18 分片全部头 | **2.6 ms** |
-| O_DIRECT 数据正确性 | 40 个最小张量，direct vs buffered 逐字节比对 | **0 mismatch** |
-| index.json 交叉校验 | `weight_map` vs 分片实际张量 | 1199 条，**0 缺失** |
+| Header parsing correctness | Rust output vs an independent Python implementation | **identical** (1199 tensors, 51.747 GiB, 18 requests, 1.0000x, BF16×1199, all 1199 index.json entries present) |
+| Header parsing speed | all headers of 18 shards | **2.6 ms** |
+| O_DIRECT data correctness | 40 smallest tensors, direct vs buffered byte-for-byte | **0 mismatches** |
+| index.json cross-check | `weight_map` vs tensors actually in shards | 1199 entries, **0 missing** |
 
-选取最小张量做比对是有意的：它们是**最不可能块对齐**的那些，正好压测取整逻辑。
+Comparing the smallest tensors is deliberate: they are the ones **least likely
+to be block-aligned**, so they exercise the rounding logic hardest.
 
-## 用法
+## Usage
 
 ```bash
 cargo build --release
 
-# 张量清单 + 对齐统计 + 读请求计划
+# tensor inventory + alignment stats + read plan
 stbench list <model_dir>
 
-# 冷缓存吞吐（--cold 会先 posix_fadvise 驱逐并报告 mincore 驻留）
+# cold-cache throughput (--cold evicts via posix_fadvise and reports mincore residency)
 stbench read <model_dir> --depth 32 --chunk-mb 1 --cold
 stbench read <model_dir> --depth 32 --chunk-mb 1 --cold --buffered
 
-# 对照组：每张量一次请求（暴露对齐惩罚）
+# control: one request per tensor, exposing the alignment penalty
 stbench read <model_dir> --cold --per-tensor
 
-# 正确性：O_DIRECT vs 缓冲读逐字节比对
+# correctness: O_DIRECT vs buffered, byte for byte
 stbench verify <model_dir> --tensors 40
 ```
 
-## 环境要求
+## Requirements
 
-- Linux 内核 ≥ 5.6（io_uring），推荐 ≥ 5.15；需 `kernel.io_uring_disabled = 0`
-- 支持 `O_DIRECT` 的文件系统
+- Linux kernel ≥ 5.6 for `io_uring`, ≥ 5.15 recommended; needs
+  `kernel.io_uring_disabled = 0`
+- A filesystem that supports `O_DIRECT`
 
-## 实测结果
+## Measured
 
-开发/验证机：Linux / kernel 6.8 / rustc 1.95 / 单 NVMe。
-测试模型：`Qwen3.8-27B`（18 分片，1199 张量，51.747 GiB，BF16）。
-每次运行前 `posix_fadvise(DONTNEED)` + `sync`，并用 **mincore 确认 `residency = 0.000`** 才开始计时。
+Development and verification host: Linux, kernel 6.8, rustc 1.95, single NVMe.
+Test model: `Qwen3.8-27B` (18 shards, 1199 tensors, 51.747 GiB, BF16).
+Every run is preceded by `posix_fadvise(DONTNEED)` + `sync`, and timing only
+starts once **mincore confirms `residency = 0.000`**.
 
-### 吞吐
+### Throughput
 
-| 配置 | 耗时 | GB/s | 请求数 |
+| Configuration | Time | GB/s | Requests |
 |---|---|---|---|
-| `dd` 单流 O_DIRECT（3.2 GiB 参照） | 3.148s | **1.10** | — |
-| Rust depth=8, chunk=1MiB | 31.139s | 1.78 | 53004 |
-| **Rust depth=32, chunk=1MiB** | **25.569s** | **2.17** | 53004 |
-| Rust depth=64, chunk=1MiB | 25.522s | 2.18 | 53004 |
-| Rust depth=32, chunk=8MiB | 25.501s | 2.18 | 6634 |
-| Rust depth=32, chunk=1MiB, **缓冲读** | 36.622s | **1.52** | 53004 |
-| Rust **每张量一请求**（对照组） | 25.786s | 2.16 | 54081（放大 1.0001x） |
+| `dd` single-stream O_DIRECT (3.2 GiB reference) | 3.148 s | **1.10** | — |
+| Rust depth=8, chunk=1 MiB | 31.139 s | 1.78 | 53004 |
+| **Rust depth=32, chunk=1 MiB** | **25.569 s** | **2.17** | 53004 |
+| Rust depth=64, chunk=1 MiB | 25.522 s | 2.18 | 53004 |
+| Rust depth=32, chunk=8 MiB | 25.501 s | 2.18 | 6634 |
+| Rust depth=32, chunk=1 MiB, **buffered** | 36.622 s | **1.52** | 53004 |
+| Rust **one request per tensor** (control) | 25.786 s | 2.16 | 54081 (1.0001x) |
 
-结论：
+Conclusions:
 
-1. **O_DIRECT 比缓冲读快 43%**（2.17 vs 1.52 GB/s）→ 冷加载必须走直连，与预期一致。
-2. **深度在 32 饱和**（32→64 仅 +0.5%）、**chunk 大小完全平**（1MiB vs 8MiB +0.5%）→ 参数地形是平的，与冷缓存方法论的结论一致。
-3. **2.17 GB/s 已超过该单盘 2.0 GB/s 的既有天花板**；`dd` 单流只有 1.10 GB/s，说明并发带来约 2x。
-4. 峰值 RSS 0.03~0.07 GiB（depth × chunk 的 buffer 池），无内存膨胀。
+1. **O_DIRECT is 43% faster than buffered** (2.17 vs 1.52 GB/s) — cold loads must
+   bypass the page cache.
+2. **Depth saturates at 32** (32→64 is +0.5%) and **chunk size is flat**
+   (1 MiB vs 8 MiB is +0.5%) — the parameter landscape has no slope here.
+3. **2.17 GB/s exceeds the 2.0 GB/s previously taken as this device's ceiling**;
+   single-stream `dd` reaches only 1.10 GB/s, so concurrency is worth roughly 2×.
+4. Peak RSS 0.03–0.07 GiB (the depth × chunk buffer pool); no memory growth.
 
-### 启动开销（本章的核心收益）
+### Start-up cost (the point of this tree)
 
-| | 实测 |
+| | Measured |
 |---|---|
-| Rust 进程启动 + 18 分片全头解析 | **wall 0.00–0.01 s**，maxRSS **2–2.5 MB** |
-| 头部解析本身 | 2.5–9.6 ms |
-| （对照）Python `import torch` + `load_repo` | **2.80 s** |
+| Rust process start + parsing all 18 shard headers | **wall 0.00–0.01 s**, maxRSS **2–2.5 MB** |
+| Header parsing alone | 2.5–9.6 ms |
+| (baseline) Python `import torch` + `load_repo` | **2.80 s** |
 
-**Rust 把固定开销 F 从 2.80s 压到 ~0.01s 量级。** 投影到 7.2b 冷拉起：
+**Rust takes the fixed cost F from 2.80 s to roughly 0.01 s.** Projected onto a
+7.2B cold start:
 
 ```
-现在:  F 2.80s + W 2.74s = 5.54s  →  1.58x
-Rust:  F 0.01s + W 2.74s = 2.75s  →  ~3.2x
+today:  F 2.80s + W 2.74s = 5.54s  ->  1.58x
+Rust:   F 0.01s + W 2.74s = 2.75s  ->  ~3.2x
 ```
 
-### 跨模型验证
+### Cross-model validation
 
-| 模型 | 分片 | 张量 | 大小 | 请求 | 放大 | dtype |
+| Model | Shards | Tensors | Size | Requests | Amplification | dtype |
 |---|---|---|---|---|---|---|
 | `Qwen3.8-27B` | 18 | 1199 | 51.747 GiB | 18 | 1.0000x | BF16×1199 |
 | `DeepSeek-R1-Distill-Qwen-7B` | 2 | 339 | 14.185 GiB | 2 | 1.0000x | BF16×339 |
 | `rwkv7-g1g-1.5b-hf` | 6 | 795 | 2.845 GiB | 6 | 1.0000x | F16×795 |
 
-三者 `index.json` 条目数与分片实际张量数**完全一致，0 缺失**。
-DeepSeek-7B 冷读：**2.21 GB/s**。
+For all three, the number of `index.json` entries **exactly matches** the number
+of tensors in the shards, with none missing. DeepSeek-7B cold read: **2.21 GB/s**.
 
-### 一个诚实的修正
+### A correction worth recording
 
-原本预期"合并相邻张量"是性能关键。实测显示：**这三个模型的张量是完美紧排的**（`internal gaps = 0B`），
-且读请求本来就要按 chunk 切分，所以**合并与不合并的吞吐几乎一样**（2.16 vs 2.17 GB/s）。
-合并的价值在于把规划层的请求数从 1199 降到 18，而不是吞吐。
+The expected finding was that merging adjacent tensors was the performance
+lever. It is not: **the tensors in these three models are perfectly packed**
+(`internal gaps = 0B`), and reads are split by chunk size anyway, so **merged and
+unmerged throughput are nearly the same** (2.16 vs 2.17 GB/s).
 
-若文件里有**大空洞或大量碎片**，合并才会变成吞吐杠杆 —— 当前测试集里没有这种文件。
+The value of merging is in the plan: it takes requests from 1199 down to 18, not
+throughput. Merging would only become a throughput lever on a file with **large
+holes or heavy fragmentation**, and none of the test models has that.
 
-## 尚未做的（下一章）
+## Not done yet
 
-加载层只做到「把字节以盘顶速度读出来并校验」，还没有：
+This tree only gets bytes off the disk at device speed and verifies them. It does
+not yet:
 
-1. **交付给消费者** —— 权重如何落到显存、按什么布局交给自研 Qwen 计算代码（pinned buffer + `cudaMemcpyAsync` 流水，或直接落显存）
-2. **量化构造** —— 若走 r1mm8/w8row 那条路，构造开销（0.666s）要重新计入
-3. **4080 上的端到端验收** —— `5.54s → 3.2s` 的目标口径在 4080（4.33 GB/s 盘）上，本机是 V100（2.2 GB/s），比例不同
+1. **Hand anything to a consumer** — how weights reach device memory and in what
+   layout they are passed to a hand-written Qwen compute path (a pinned-buffer +
+   `cudaMemcpyAsync` pipeline, or a direct copy into device memory).
+2. **Build quantized weights** — if the r1mm8/w8row path is used, that
+   construction cost (0.666 s) has to be added back into the budget.
+3. **End-to-end acceptance on the 4080** — the `5.54 s → 3.2 s` target is stated
+   for a 4.33 GB/s device; this host is a 2.2 GB/s V100, so the ratios differ.
 
-## 鲁棒性
+## Robustness
 
-### 自审发现并修掉的 13 个问题
+### Thirteen problems found by self-review and fixed
 
-第一版只验证了"合法文件能读对"，没有验证"非法文件会怎样"。自审后发现以下问题：
+The first version only proved that **valid** files read correctly; it never asked
+what happens with **invalid** ones. Self-review turned up the following:
 
-| # | 问题 | 后果 | 修法 |
+| # | Problem | Consequence | Fix |
 |---|---|---|---|
-| 1 | `plan.rs` 的 `a1 - a0` 可能**下溢** | release 关闭溢出检查 → 绕回成 u64 巨值 → **巨额分配/OOM** | `a1 <= a0` 时跳过，永不发出 |
-| 2 | `last.offset + last.len + max_gap` 溢出 | 合并判断绕回，可能错误合并或拒绝 | 改用 `saturating_add` |
-| 3 | `data_start + self.end` 未检查溢出 | 与 1 同类 | 改为解析期强制不变量 |
-| 4 | 未校验 `end <= buffer_size` | 畸形头会导致读到文件外的偏移 | 解析期拒绝 |
-| 5 | 未校验 `offsets` 与 `shape × dtype` 一致 | 合法 JSON 但描述错误字节范围的头部会被静默接受 | 解析期交叉校验 |
-| 6 | `ceil_to` 可溢出 | 极大输入绕回 | 改 `saturating_mul` |
-| 7 | `ReadConfig.keep_open` 是**死字段** | 谎报能力 | 删除 |
-| 8 | `read_files` 对不匹配的 plan 会**数组越界 panic** | 崩而非报错 | 改为 `InvalidInput` 错误 |
-| 9 | `submit_and_wait` 把 `EINTR` 当致命错误 | 被信号打断就假报失败 | 重试 |
-| 10 | **零元素张量会发出一次虚假读请求**（读到 header 区填充） | 无谓 I/O | 跳过 `nbytes()==0` |
-| 11 | `shape` 解析把 `u64::MAX` 当成"非整数" | 错误信息误导 | 区分两种情况 |
-| 12 | 完全没有测试 | — | 见下 |
-| 13 | `verify` 只覆盖 ≤64 KiB 张量 | 占绝大多数字节的大张量从未被校验 | 增加大张量覆盖 |
+| 1 | `a1 - a0` in `plan.rs` could **underflow** | release builds have overflow checks off → wraps to a huge u64 → **enormous allocation / OOM** | skip when `a1 <= a0`; never emit |
+| 2 | `last.offset + last.len + max_gap` overflowed | the merge decision wrapped, wrongly merging or refusing | `saturating_add` |
+| 3 | `data_start + self.end` unchecked | same class as 1 | enforced as a parse-time invariant |
+| 4 | `end <= buffer_size` unvalidated | a malformed header could plan a read past the file | rejected at parse time |
+| 5 | `offsets` not cross-checked against `shape × dtype` | valid JSON describing the wrong byte spans would be silently accepted | parse-time cross-check |
+| 6 | `ceil_to` could overflow | large inputs wrapped | `saturating_mul` |
+| 7 | `ReadConfig.keep_open` was a **dead field** | advertised a capability that did not exist | removed |
+| 8 | `read_files` **panicked on an out-of-bounds index** for a mismatched plan | crash instead of error | `InvalidInput` error |
+| 9 | `submit_and_wait` treated `EINTR` as fatal | a signal would be reported as a read failure | retry |
+| 10 | **A zero-element tensor emitted a spurious read request** (reading header padding) | wasted I/O | skip `nbytes() == 0` |
+| 11 | `shape` parsing reported `u64::MAX` as "non-integer" | misleading error | distinguish the two cases |
+| 12 | No tests at all | — | see below |
+| 13 | `verify` only covered tensors ≤ 64 KiB | the large tensors holding nearly all the bytes were never checked | added large-tensor coverage |
 
-**第 10 条是我自己的测试抓出来的**，不是审出来的 —— 这正好说明测试的价值。
+**Number 10 was caught by a test I wrote, not by review** — which is the point of
+having tests.
 
-### 测试
+### Tests
 
 ```bash
-cargo test --release        # 3 个测试，含 28 个合成用例
-stbench selftest            # 28 个合成鲁棒性用例，逐条打印
+cargo test --release        # 3 tests, including 28 synthetic cases
+stbench selftest            # 28 synthetic robustness cases, printed individually
 ```
 
-`stbench selftest` 会**现场生成**畸形 safetensors 并断言行为，不需要任何真实模型：
+`stbench selftest` **generates malformed safetensors on the spot** and asserts
+behaviour, so it needs no real model:
 
 ```
-[PASS] hdr_zero                          拒绝：header length is zero
-[PASS] hdr_overrun                       拒绝：header length 4096 overruns file of 10 bytes
-[PASS] hdr_absurd                        拒绝：header length 1099511627776 exceeds 268435456
-[PASS] hdr_short                         拒绝：file shorter than 8-byte header length
-[PASS] json_bad                          拒绝：bad JSON header
-[PASS] json_array                        拒绝：header is not a JSON object
-[PASS] entry_not_obj                     拒绝：entry a is not an object
-[PASS] meta_not_obj                      拒绝：__metadata__ is not an object
-[PASS] dtype_unknown                     拒绝：unknown dtype F7
-[PASS] missing_shape                     拒绝：missing shape
-[PASS] offsets_not_pair                  拒绝：data_offsets is not a pair
-[PASS] end_before_start                  拒绝：end 10 < start 100
-[PASS] end_beyond_buffer                 拒绝：ends at 1024 beyond buffer of 8 bytes
-[PASS] shape_dtype_mismatch              拒绝：declares 20 bytes but shape [10] x F32 needs 40
-[PASS] shape_noninteger                  拒绝：shape has a non-integer dimension "x"
-[PASS] offset_u64max                     拒绝：ends at 18446744073709551615 beyond buffer of 16
-[PASS] shape_overflow                    拒绝：shape product overflows u64
-[PASS] off_by_one                        拒绝：ends at 17 beyond buffer of 16 bytes
+[PASS] hdr_zero                          rejected: header length is zero
+[PASS] hdr_overrun                       rejected: header length 4096 overruns file of 10 bytes
+[PASS] hdr_absurd                        rejected: header length 1099511627776 exceeds 268435456
+[PASS] hdr_short                         rejected: file shorter than 8-byte header length
+[PASS] json_bad                          rejected: bad JSON header
+[PASS] json_array                        rejected: header is not a JSON object
+[PASS] entry_not_obj                     rejected: entry a is not an object
+[PASS] meta_not_obj                      rejected: __metadata__ is not an object
+[PASS] dtype_unknown                     rejected: unknown dtype F7
+[PASS] missing_shape                     rejected: missing shape
+[PASS] offsets_not_pair                  rejected: data_offsets is not a pair
+[PASS] end_before_start                  rejected: end 10 < start 100
+[PASS] end_beyond_buffer                 rejected: ends at 1024 beyond buffer of 8 bytes
+[PASS] shape_dtype_mismatch              rejected: declares 20 bytes but shape [10] x F32 needs 40
+[PASS] shape_noninteger                  rejected: shape has a non-integer dimension "x"
+[PASS] offset_u64max                     rejected: ends at 18446744073709551615 beyond buffer of 16
+[PASS] shape_overflow                    rejected: shape product overflows u64
+[PASS] off_by_one                        rejected: ends at 17 beyond buffer of 16 bytes
 [PASS] valid: two contiguous tensors     tensors=2 tensor_bytes=8192 ranges=1
 [PASS] valid: zero-element tensor        tensors=1 tensor_bytes=0 ranges=0
 [PASS] valid: scalar tensor shape []     tensor_bytes=4
@@ -221,109 +249,142 @@ stbench selftest            # 28 个合成鲁棒性用例，逐条打印
 28 cases, 28 passed, 0 failed
 ```
 
-另有一个**已知字节模式的往返测试**：构造一个 300 字节填充 + 8192 字节确定性 pattern 的文件，
-确保张量偏移**故意不对齐**，然后走 `O_DIRECT` 读回并逐字节比对 —— 端到端验证对齐切片逻辑。
+There is also a **known-pattern round-trip test**: it builds a file with 300
+bytes of padding followed by an 8192-byte deterministic pattern, arranged so the
+tensor offset is **deliberately unaligned**, reads it back through `O_DIRECT`,
+and compares byte for byte — an end-to-end check of the alignment and slicing
+logic.
 
-### 真实文件损坏测试
+### Corruption tests on real files
 
-在真实的 512 MiB 分片（`rwkv7-g1g-1.5b-hf`）上做变体：
+Variants built from a real 512 MiB shard (`rwkv7-g1g-1.5b-hf`):
 
-| 变体 | 结果 |
+| Variant | Result |
 |---|---|
-| payload 截断一半 | `entry lm_head.weight ends at 268435456 beyond buffer of 268435344 bytes` |
-| **payload 只少最后 1 字节** | `entry model.embeddings.weight ends at 536870912 beyond buffer of 536870911 bytes` |
-| 只保留 header | `ends at 268435456 beyond buffer of 0 bytes` |
-| 完好（对照） | 通过，`tensors=2 planned: 1 requests amplification 1.0000x` |
-| 截断文件上执行 `read` | 同样在解析期报错，不进读路径 |
-| 全随机字节 | `header length 9636161184222581920 exceeds 268435456` |
-| 空文件 | `file shorter than 8-byte header length` |
-| 目录无 .safetensors | `no .safetensors files` |
+| payload truncated to half | `entry lm_head.weight ends at 268435456 beyond buffer of 268435344 bytes` |
+| **payload short by exactly one byte** | `entry model.embeddings.weight ends at 536870912 beyond buffer of 536870911 bytes` |
+| header only, no payload | `ends at 268435456 beyond buffer of 0 bytes` |
+| intact (control) | passes, `tensors=2 planned: 1 requests amplification 1.0000x` |
+| `read` on a truncated file | also fails at parse time; never enters the read path |
+| entirely random bytes | `header length 9636161184222581920 exceeds 268435456` |
+| empty file | `file shorter than 8-byte header length` |
+| directory with no `.safetensors` | `no .safetensors files` |
 
-**全部干净报错，无 panic、无 OOM、无巨量分配。** 1 字节的截断也能精确检出。
+**All fail cleanly — no panic, no OOM, no enormous allocation.** A one-byte
+truncation is detected exactly.
 
-### 一个必须记录的设计事实
+### A design fact that has to be recorded
 
-plan 会向上取整到**超出文件尾**，靠 EOF 短读收尾（基准里那 18 个 `short_reads` 就是 18 个分片）。
-这是 `O_DIRECT` 下的唯一正确做法：**把长度夹到 `file_size` 会破坏块对齐，内核直接返回 `EINVAL`。**
+The plan rounds **up past end-of-file**, and the read is closed out by a short
+count at EOF (the 18 `short_reads` in the benchmark are the 18 shards). This is
+the only correct choice under `O_DIRECT`: **clamping the length to `file_size`
+would break block alignment and the kernel returns `EINVAL`.**
 
-### 内建 fuzzer（`stbench fuzz`）
+### Built-in fuzzer (`stbench fuzz`)
 
-手写用例只能覆盖**作者想到的情况**。本 crate 自带一个变异 fuzzer，不依赖任何外部工具（不需要 nightly、libFuzzer 或 sanitizer）：
+Hand-written cases only cover what their author thought of. This crate carries a
+mutational fuzzer that depends on no external tooling — no nightly, no libFuzzer,
+no sanitizer:
 
 ```bash
 cargo build --profile fuzz
 stbench fuzz --iters 1000000 --seed 1 --read
 ```
 
-它做两件事，缺一不可：
+It does two things, and both are necessary:
 
-1. **捕获 panic** —— 整个解析/规划/读取流程跑在 `catch_unwind` 里，越界或 unwrap 会变成一条记录而不是杀掉进程。
-2. **真正的安全判据** —— 只防崩溃是不够的。**如果解析成功**，则规划出的范围必须满足：
-   - 每个范围两端都块对齐、非空；
-   - 每个范围都在 `[0, ceil(file_size, block)]` 内 → **不可能读到文件外**；
-   - 范围有序且不重叠；
-   - **每个张量的绝对字节区间被完全包含在某个范围内** → 不可能漏读；
-   - **每个范围至少覆盖某个张量的一些字节** → 不可能空转读。
+1. **Catches panics.** The whole parse/plan/read pipeline runs inside
+   `catch_unwind`, so an out-of-bounds index or an unwrap becomes a recorded
+   failure rather than killing the run.
+2. **Checks a real safety oracle.** Not crashing is not enough. **If a header
+   parses**, the plan derived from it must satisfy:
+   - every range block-aligned on both ends and non-empty;
+   - every range inside `[0, ceil(file_size, block)]` → **cannot read outside the file**;
+   - ranges sorted and non-overlapping;
+   - **every tensor's absolute byte span fully contained in some range** → cannot skip a tensor;
+   - **every range covers at least some tensor bytes** → cannot read nothing.
 
-最后一条是"效率"判据，前四条是"安全"判据。只有安全判据会漏掉一类 bug（见下）。
+The last is an *efficiency* check; the first four are *safety* checks. Safety
+checks alone miss a whole class of bug (see below).
 
-#### 关键：验证判据本身有没有牙齿
+#### Validating the oracle itself
 
-"fuzz 结果是 clean" 有两种解释：代码没问题，或者**判据是瞎的**。所以故意注入 bug 看它是否报警：
+"Fuzzing came back clean" has two readings: the code is fine, or **the oracle is
+blind**. So bugs were injected deliberately to see whether it complains:
 
-| 注入的 bug | fuzzer 是否抓到 | 诊断信息 |
+| Injected bug | Caught? | Diagnostic |
 |---|---|---|
-| 去掉 `.min(file_ceil)` 夹取 | **没抓到（正确）** | 解析期已保证 `abs_e <= file_size`，故 `ceil_to(abs_e) <= file_ceil` 恒成立 —— 这个夹取是**冗余的**，不是 bug |
-| `a0` 用 `ceil_to` 而非 `floor_to` | **抓到** | `tensor a [127,4223) not contained in range [4096,8192)` |
-| 同上（另一种表现） | **抓到** | `tensor w [96,104) has no covering range` |
-| 去掉零元素张量跳过 | **改进前漏掉 → 改进后第 3 次迭代抓到** | `range [0, 4096) covers no tensor bytes (wasted read)` |
+| removed the `.min(file_ceil)` clamp | **no (correct)** | parsing already guarantees `abs_e <= file_size`, so `ceil_to(abs_e) <= file_ceil` always holds — the clamp is **redundant**, not a bug |
+| `a0` used `ceil_to` instead of `floor_to` | **yes** | `tensor a [127,4223) not contained in range [4096,8192)` |
+| same, other manifestation | **yes** | `tensor w [96,104) has no covering range` |
+| removed the zero-element skip | **missed before, caught on iteration 3 after** | `range [0, 4096) covers no tensor bytes (wasted read)` |
 
-#### 一个真实的教训：fuzzer 和手写用例覆盖不同的东西
+#### A real lesson: the fuzzer and the hand-written cases cover different things
 
-注入"去掉零元素跳过"这个 bug 后：
+After injecting the "removed zero-element skip" bug:
 
-| | 结果 |
+| | Result |
 |---|---|
-| **手写 `selftest`** | **抓到** — `[FAIL] valid: zero-element tensor  tensors=1 tensor_bytes=0 ranges=1` |
-| **fuzzer（改进前）** | **漏掉** — 随机生成的头部**几乎不会**产生"合法文件 + 退化张量（零元素 / scalar / 未对齐偏移）"这种组合 |
+| **hand-written `selftest`** | **caught it** — `[FAIL] valid: zero-element tensor  tensors=1 tensor_bytes=0 ranges=1` |
+| **fuzzer (before the improvement)** | **missed it** — randomly generated headers **almost never** produce the combination "valid file + degenerate tensor (zero-element / scalar / unaligned offset)" |
 
-修法不是调判据，而是**给 fuzzer 加一条策略：直接回放种子语料**（不做变异）。改进后同一 bug 在第 3 次迭代被抓到。
+The fix was not to change the oracle but to **give the fuzzer a strategy that
+replays the seed corpus verbatim**, without mutation. After that the same bug was
+caught on iteration 3.
 
-所以：**28 个手写用例不是 fuzzer 的替代品，两者是互补的。** 手写用例编码"我知道的语义边界"，fuzzer 负责"我没想到的结构畸形"。
+So: **28 hand-written cases are not a substitute for a fuzzer; the two are
+complementary.** The hand-written cases encode "semantic boundaries I know
+about"; the fuzzer covers "structural malformation I did not think of".
 
-#### 大规模运行结果
+#### Large runs
 
-| 版本 | 规模 | 解析成功 | 正确拒绝 | 执行读 | 结果 |
+| Version | Scale | Parsed | Correctly rejected | Reads executed | Result |
 |---|---|---|---|---|---|
-| 改进前 | 3 × 400,000 = 120 万次（含读） | 157k | 104 万 | 157k | clean |
-| **改进后** | **8 × 250,000 = 200 万次（含读）** | **625,729** | **1,374,271** | **625,729** | **clean** |
+| before | 3 × 400,000 = 1.2M (with reads) | 157k | 1.04M | 157k | clean |
+| **after** | **8 × 250,000 = 2.0M (with reads)** | **625,729** | **1,374,271** | **625,729** | **clean** |
 
-改进版的 8 个 seed（11/22/33/44/55/66/77/88）逐个独立运行，全部
-`RESULT: clean (no panics, no invariant violations)`，吞吐约 3,200 次/秒。
-另有 `dtype table consistent: true`（dtype 名称与枚举双向 round-trip 一致）。
+The eight seeds (11/22/33/44/55/66/77/88) each ran independently and all reported
+`RESULT: clean (no panics, no invariant violations)` at roughly 3,200 cases/s.
+Also reported: `dtype table consistent: true` (the dtype names and the enum
+round-trip in both directions).
 
-`panic = "abort"` 与 `catch_unwind` 冲突，所以 fuzzer 必须用 `fuzz` profile（`inherits = "release"` + `panic = "unwind"`）。这不是可选项 —— 用错 profile 会让"捕获到的 panic"变成进程终止，fuzzer 形同虚设。
+`panic = "abort"` conflicts with `catch_unwind`, so the fuzzer must use the
+`fuzz` profile (`inherits = "release"` + `panic = "unwind"`). This is not
+optional — the wrong profile turns a caught panic into process termination and
+the fuzzer becomes decorative.
 
-### 仍然没做的（诚实清单）
+### Still not done
 
-- **自带 fuzzer 无覆盖引导**。它是随机变异，不像 `cargo-fuzz` / libFuzzer 那样朝新代码路径定向进化，
-  所以**发现深藏 bug 的能力弱于 libFuzzer**；运行时间是分钟级，不是长时间持续 fuzzing。
-- 有 28 个手写用例 + 8 个真实文件变体 + 200 万次随机变异，但**都不是全量字节比对**
-- **没有覆盖全部字节**：`verify` 只比对了 48 个最小张量 + 4 个最大张量的前 4 MiB，不是 51.7 GiB 全量
-- **单线程单 ring**：没做多 ring / 多线程，也没做 NUMA 或 CPU 亲和
-- **`--gap` 语义未在真实带空洞文件上验证**（三个测试模型的张量都是零间隙的）
-- **未校验分片集合与 `index.json` 的文件名一致**，只校验了张量名集合
-- **无 mmap 路径**可比对（`--buffered` 是 `read(2)`，不是 mmap）
-- **无并发加载测试**（两个进程同时加载同一模型）
+- **No coverage guidance.** The built-in fuzzer mutates at random; unlike
+  `cargo-fuzz` / libFuzzer it does not evolve toward new code paths, so its
+  ability to find deeply buried bugs is weaker, and runs are minutes rather than
+  long-lived fuzzing.
+- 28 hand-written cases, 8 real-file variants and 2M mutations — but **none of
+  them is a full-byte comparison**.
+- **Not every byte is covered.** `verify` compares the 48 smallest tensors and
+  the first 4 MiB of the 4 largest, not all 51.7 GiB.
+- **Single thread, single ring.** No multi-ring, no multi-threading, no NUMA or
+  CPU affinity.
+- **`--gap` is unverified on a real file with holes** (all three test models have
+  zero gaps between tensors).
+- **The shard set is not cross-checked against the file names in `index.json`**;
+  only the tensor-name sets are compared.
+- **No mmap path to compare against** (`--buffered` is `read(2)`, not mmap).
+- **No concurrent-load test** (two processes loading the same model).
 
-## 相关文档
+## Related
 
-- `../qwen35-forward/` — Qwen3.5 forward 的金标准生成器与比较器（本仓库另一目录）
-- `docs/loader-internals.md` — Siphon 自身（Python/C++）的加载器内部原理
-- `docs/benchmark.md` — Siphon 的原始 H200 基准
+- [`../qwen35-forward/`](../qwen35-forward/) — golden-reference generator and
+  comparator for a Qwen3.5 forward pass (the other tree in this repository)
+- [`../docs/loader-internals.md`](../docs/loader-internals.md) — internals of
+  Siphon itself (Python/C++)
+- [`../docs/benchmark.md`](../docs/benchmark.md) — Siphon's original H200
+  benchmarks
 
-### 冷缓存方法论
+### Cold-cache methodology
 
-本文所有吞吐数字都在**冷缓存**下测得：先 `posix_fadvise(DONTNEED)` + `sync`，
-再用 `mincore` 采样确认驻留率为 `0.000` 才开测（`stbench read --cold` 会自动做这两步并打印）。
-不做这一步的数字没有意义 —— 页缓存会把它变成内存带宽测试。
+Every throughput number here was taken with a **cold cache**: `posix_fadvise`
+with `DONTNEED` followed by `sync`, then a `mincore` sample to confirm residency
+is `0.000` before the clock starts (`stbench read --cold` does both and prints
+the result). A number taken without this step is meaningless — the page cache
+turns it into a memory-bandwidth test.

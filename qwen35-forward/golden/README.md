@@ -1,45 +1,53 @@
-# Qwen3.5 golden reference — 供自研 forward 对照用
+# Qwen3.5 golden reference
 
-给"自己写 forward"准备的**可对照标准答案**。纯 CPU、无需下载大模型、无需 GPU。
+A **reference to compare against** for writing a Qwen3.5 forward pass by hand.
+Pure CPU: no GPU, no large model download.
 
-## 一句话结论（来自实测）
+## The one-line conclusion (measured)
 
-**逐张量对比是主仪器；token 轨迹是端到端体检，不是调试工具。**
+**Per-tensor comparison is the primary instrument; the token trace is an
+end-to-end health check, not a debugging tool.**
 
-我把 `A_log`（SSM 的衰减参数）扰动 1%，实测：
+Perturbing `A_log` (the SSM decay parameter) by 1%:
 
-| ssm_gain | 逐张量相对变化 | **greedy token 变化** |
+| ssm_gain | per-tensor relative change | **greedy tokens changed** |
 |---|---|---|
-| 1（官方初始化） | 5.6e-04 | **0 / 16** |
+| 1 (official init) | 5.6e-04 | **0 / 16** |
 | 30 | 1.3e-03 | **0 / 16** |
 | 100 | 3.2e-03 | **0 / 16** |
 | **300** | 1.5e+00 | **4 / 16** |
 
-**在真实权重尺度下，递归路径只占残差的 0.113%**，所以"改 1% 权重 → token 一个不变"是必然的。
-`ssm_gain=300` 能让 token 轨迹变敏感，但那时递归路径占残差比 >1，已经**不真实**了。
+**At real weight scale the recurrent path contributes only 0.113% of the
+residual**, so "change a weight by 1%, not one token moves" is inevitable.
+`ssm_gain=300` does make the trace sensitive, but there the recurrent path
+outweighs the residual, which is **no longer realistic**.
 
-→ **默认 `golden_tiny`（`ssm_gain=1.0`，官方初始化）用于逐张量对照** —— 逐张量在任何 gain 下都敏感（5.6e-04 就能反映 1% 权重扰动）。
-→ **另生成一份 `golden_sensitive`（`--ssm-gain 300`）专门用于 token 轨迹验收**，因为它会让 4/16 个 token 发生变化。
+→ **The default `golden_tiny` (`ssm_gain=1.0`, official init) is for per-tensor
+comparison** — per-tensor is sensitive at any gain (5.6e-04 already reflects a 1%
+weight perturbation).
+→ **A second bundle `golden_sensitive` (`--ssm-gain 300`) exists solely for token
+trace acceptance**, because it changes 4 of 16 tokens.
 
-两份都用同一套权重导出格式，Rust 侧代码不变。
+Both use the same weight export format, so no Rust-side code changes.
 
-## 快速开始
+## Quick start
 
 ```bash
-# 1. 生成金标准（约 1 秒）
+# 1. generate the reference (about one second)
 python golden/gen_golden.py --out golden_tiny --tokens 16
 
-# 2. 生成一个 token 轨迹敏感的版本（用于端到端验收）
+# 2. generate a token-trace-sensitive variant (for end-to-end acceptance)
 python golden/gen_golden.py --out golden_sensitive --ssm-gain 300 --tokens 16
 
-# 3. 验证金标准本身是否可信（必须做）
+# 3. verify the reference is itself trustworthy (mandatory)
 python golden/validate_golden.py --bundle golden_tiny
 ```
 
-## 实测验证结果
+## What validation reports
 
-`validate_golden.py` 会检查三件事。**一个"不可复现"或"无区分度"的金标准比没有更糟** ——
-它会产生自信而毫无意义的判定。
+`validate_golden.py` checks three things. **A reference that is not reproducible,
+or not discriminative, is worse than none** — it produces confident, meaningless
+verdicts.
 
 ```
 1) reproducibility
@@ -55,7 +63,8 @@ python golden/validate_golden.py --bundle golden_tiny
           cannot validate the recurrent path here
 ```
 
-以及生成时的自检 —— **delta rule 的两种形态必须吻合**，这先验证了参考实现本身：
+Generation also self-checks that **the two forms of the delta rule agree**,
+which validates the reference implementation before it is used as a target:
 
 ```
 delta B1_H2_T6_K16_V16: recurrent vs chunked  out 2.235e-08  state 5.960e-08
@@ -63,29 +72,32 @@ delta B1_H2_T1_K16_V16: recurrent vs chunked  out 1.118e-08  state 5.960e-08
 delta B2_H3_T5_K8_V8 : recurrent vs chunked  out 2.980e-08  state 1.192e-07
 ```
 
-## ⚠️ 两个会静默杀死网络的坑（已从源码确认）
+## Two traps that silently kill the network (confirmed from source)
 
-### 1. 归一化有两种**不同**约定，写反不会报错
+### 1. Normalisation has two *different* conventions, and getting it wrong is silent
 
 ```python
 class Qwen3_5RMSNorm:
-    self.weight = nn.Parameter(torch.zeros(dim))     # ← 零初始化
+    self.weight = nn.Parameter(torch.zeros(dim))     # <- zero init
     def forward(self, x):
         output = self._norm(x.float())
-        output = output * (1.0 + self.weight.float())   # ← (1 + w)
+        output = output * (1.0 + self.weight.float())   # <- (1 + w)
 ```
 
-| Norm | 公式 | 权重初始化 | 实测值 |
+| Norm | Formula | Weight init | Measured |
 |---|---|---|---|
-| `Qwen3_5RMSNorm`（`input_layernorm` / `post_attention_layernorm` / `q_norm` / `k_norm`） | `x * (1 + w)` | **零** | 全 0 ✓ |
-| `Qwen3_5RMSNormGated`（`linear_attn.norm`） | `w * x`，再乘 `silu(gate)` | 一 | 全 1 ✓ |
+| `Qwen3_5RMSNorm` (`input_layernorm` / `post_attention_layernorm` / `q_norm` / `k_norm`) | `x * (1 + w)` | **zero** | all 0 |
+| `Qwen3_5RMSNormGated` (`linear_attn.norm`) | `w * x`, then by `silu(gate)` | one | all 1 |
 
-**写成 `x * w` 会让每个 norm 输出归零**，模型照样跑完，只是全是垃圾。
-源码里还有一条注释：`Llama does x.to(float16) * w whilst Qwen3_5 is (x * w).to(float16)`。
+**Writing `x * w` zeroes every norm output**; the model still runs to completion
+and produces only garbage. A comment in the source:
+`Llama does x.to(float16) * w whilst Qwen3_5 is (x * w).to(float16)`.
 
-→ 这也解释了校验器最初误报的"21 个全零权重"：那是**正确的**，是我的检查太天真。现在它只作为 note 报告。
+→ This also explains the validator's initial false positive about "21 all-zero
+weights": those are **correct**, and the check was naive. It is now reported as a
+note.
 
-### 2. `q_proj` 输出是 2 倍，一半是门控
+### 2. `q_proj` output is doubled, and half of it is a gate
 
 ```python
 query_states, gate = torch.chunk(
@@ -94,83 +106,105 @@ query_states, gate = torch.chunk(
 attn_output = attn_output * torch.sigmoid(gate)
 ```
 
-而且 **`config.json` 写的是 `output_gate_type: "swish"`，代码用的却是 `sigmoid`** —— 读源码，别读配置。
+And **`config.json` says `output_gate_type: "swish"` while the code uses
+`sigmoid`** — read the source, not the config.
 
-## 产物结构
+## Where this sits
+
+Part of the [Siphon repository](../../README.md), in the
+[`qwen35-forward/`](../README.md) tree. See that tree's README for the three
+comparison levels and the comparator.
+
+## Bundle structure
 
 ```
 <out>/
-  manifest.json       全部元数据：配置、张量清单、token 轨迹、自检结果
-  weights/            109 个权重张量（fp32 raw LE）
-  intermediates/      逐层中间张量（hook 捕获）+ 每步 logits
-  units/              delta rule 独立金标准（k/v/q/g/beta + recurrent/chunked 两种输出）
+  manifest.json       all metadata: config, tensor inventory, token trace, self-check
+  weights/            109 weight tensors (fp32 raw LE)
+  intermediates/      per-layer activations (captured by hooks) + per-step logits
+  units/              standalone delta-rule reference
+                      (q/k/v/g/beta + both recurrent and chunked outputs)
 ```
 
-### 格式：raw little-endian f32 + JSON manifest
+### Format: raw little-endian f32 plus a JSON manifest
 
-**刻意不用 `.npy`** —— 消费方是 Rust，手写 npy 解析器是没必要的分歧来源。
-raw + JSON 无歧义、易 diff。读法：
+**Avoiding `.npy` is deliberate** — the consumer is Rust, and a hand-rolled npy
+parser would be a needless source of disagreement. Raw + JSON is unambiguous and
+easy to diff. Reading it:
 
 ```rust
 let raw = std::fs::read(bundle.join(&entry.file))?;
 let vals: Vec<f32> = raw.chunks_exact(4)
     .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
     .collect();
-// entry.shape 给出 reshape 目标
+// entry.shape gives the reshape target
 ```
 
-### 张量命名
+### Tensor naming
 
-模块路径里的 `.` 被替换为 `__`，所以能用文件名表达：
+`.` in the module path becomes `__`, so a file name can express the path:
 
 ```
-model.layers.0.linear_attn.out_proj  →  model__layers__0__linear_attn__out_proj
+model.layers.0.linear_attn.out_proj  ->  model__layers__0__linear_attn__out_proj
 ```
 
-## 对照的三层用法
+## Three levels of comparison
 
-| 层 | 对照什么 | 敏感度 | 用途 |
+| Level | What is compared | Sensitivity | Use |
 |---|---|---|---|
-| **单元**（`units/`） | 单独调 delta rule，喂 `q/k/v/g/beta`，比 `out` 和 `state` | 高 | **先做这个**。不碰 GGUF、不碰模型加载、不碰 CUDA |
-| **逐张量**（`intermediates/`） | 每层每个算子的输出 | 高（任何 gain 下都敏感） | 定位"错在哪一层哪个算子" |
-| **逐 token**（`greedy`） | `argmax` token 序列 + 每步 top-k logits | **低**（见上表） | 端到端体检，以及最终的真实模型验收 |
+| **Unit** (`units/`) | the delta rule alone: feed `q/k/v/g/beta`, compare `out` and `state` | high | **do this first.** No GGUF, no model loading, no CUDA |
+| **Per-tensor** (`intermediates/`) | every operator's output in every layer | high (at any gain) | locate *which layer, which operator* |
+| **Per-token** (`greedy`) | the `argmax` sequence plus each step's top-k logits | **low** (see table above) | end-to-end health check, and final real-model acceptance |
 
-`manifest.greedy.steps[i]` 每步给出 `argmax_token`、`topk_tokens`、`topk_logits`、`logit_sum`、`logit_max`，
-另外每步完整 logit 向量也落盘在 `intermediates/greedy_stepNN__logits.f32`。
+Each entry of `manifest.greedy.steps[i]` carries `argmax_token`, `topk_tokens`,
+`topk_logits`, `logit_sum` and `logit_max`; the full logit vector for each step is
+also written to `intermediates/greedy_stepNN__logits.f32`.
 
-## 极小模型配置（367,952 参数）
+## The tiny model configuration (367,952 parameters)
 
 ```python
 hidden_size=64, intermediate_size=128, num_hidden_layers=8,
 num_attention_heads=2, num_key_value_heads=1, head_dim=32,
-layer_types = 4 层一轮（SSM,SSM,SSM,full_attn）× 2，
+layer_types = 4-layer cycle (SSM,SSM,SSM,full_attn) x 2,
 linear_conv_kernel_dim=4, linear_num_key_heads=2, linear_num_value_heads=4,
 linear_key_head_dim=16, linear_value_head_dim=16,
 vocab_size=256, rms_norm_eps=1e-6, partial_rotary_factor=0.25
 ```
 
-**为什么极小模型够用**：delta rule 的数学与维度无关。用 64 维假权重验证数学，和用 5120 维真权重验证，验的是同一件事 —— 但前者快一万倍，且不需要 GPU 或下载。
+**Why a tiny model suffices**: the delta rule's math does not depend on
+dimension. Validating the math with 64-dimensional fake weights and validating it
+with 5120-dimensional real weights test the same thing — but the former is ten
+thousand times faster and needs no GPU or download.
 
-`linear_num_value_heads=4` 而 `linear_num_key_heads=2`，**故意保留 ratio=2**，这样会走
-`query.repeat_interleave(...)` 那条 GQA 分支（27B 的 ratio 是 3，2B 是 1 所以不走 —— 只在 2B 上开发会漏掉这条路径）。
+`linear_num_value_heads=4` against `linear_num_key_heads=2` **keeps ratio=2
+deliberately**, so the `query.repeat_interleave(...)` GQA branch is taken (the
+27B has ratio=3 and takes it; the 2B has ratio=1 and does not — developing only
+on the 2B would miss this path entirely).
 
-## 参数
+## Arguments
 
 ```
---out DIR          输出目录
---tokens N         greedy 步数（默认 16）
---seq N            prompt 长度（默认 6）
---topk N           每步记录 top-k（默认 5）
---seed N           权重初始化种子（默认 0）
---ssm-gain F       缩放 linear_attn.out_proj（默认 1.0）
+--out DIR          output directory
+--tokens N         greedy steps (default 16)
+--seq N            prompt length (default 6)
+--topk N           top-k recorded per step (default 5)
+--seed N           weight initialisation seed (default 0)
+--ssm-gain F       scale linear_attn.out_proj (default 1.0)
 ```
 
-## 已知限制
+## Known limitations
 
-- **token 轨迹对递归路径不敏感**（已量化，见上表）。这不是 bug，是真实权重尺度下的必然结果。
-- **无 cache 的 token 轨迹**。greedy 每步重跑整个 forward，刻意把**数学**与 cache 记账隔离开：
-  轨迹若分歧，原因在 forward 而不在 cache。cache 语义需要单独的金标准。
-- **极小模型的随机权重**。它验证的是"数学实现对不对"，不是"模型能力强不强"。
-  真实模型的验收需要另一份金标准（加 `--model-dir`，但 27B fp16 需 ~52 GiB 内存）。
-- **`torch.use_deterministic_algorithms` 未开启**：CPU fp32 在这些算子上实测逐次一致
-  （eps=0 逐次 bit-identical 已验证），但换硬件/换 BLAS 后端时需重新确认。
+- **The token trace is insensitive to the recurrent path** (quantified above).
+  Not a bug — an inevitable consequence of real weight scale.
+- **No cache in the token trace.** Greedy re-runs the whole forward each step,
+  deliberately isolating the *math* from cache bookkeeping: if the trace
+  diverges, the cause is the forward, not the cache. Cache semantics need their
+  own reference.
+- **Random weights in a tiny model.** It validates whether the math is
+  implemented correctly, not whether the model is capable. Real-model acceptance
+  needs a separate reference (`--model-dir`), and a 27B in fp16 needs about 52 GiB
+  of memory.
+- **`torch.use_deterministic_algorithms` is not enabled.** CPU fp32 was measured
+  to be bit-identical run to run on these operators (eps=0 verified
+  bit-identical), but that must be re-confirmed on other hardware or another BLAS
+  backend.

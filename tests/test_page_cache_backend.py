@@ -30,7 +30,7 @@ from siphon import _impl                                    # noqa: E402
 from siphon._impl import Backend                            # noqa: E402
 
 
-# --------------------------------------------------------------------------- 阈值
+# --------------------------------------------------------------------------- threshold
 def test_threshold_default(monkeypatch):
     monkeypatch.delenv("SIPHON_CACHE_RESIDENT_THRESHOLD", raising=False)
     assert _impl.env_cache_resident_threshold() == _impl.DEFAULT_CACHE_RESIDENT_THRESHOLD
@@ -61,7 +61,7 @@ def test_threshold_above_one_disables_probe(monkeypatch):
     assert _impl.choose_disk_backend_candidates(["/nonexistent"]) == list(_impl.default_backend)
 
 
-# --------------------------------------------------------------------------- 决策
+# --------------------------------------------------------------------------- decision
 def test_choose_warm_returns_buffered(monkeypatch):
     monkeypatch.delenv("SIPHON_CACHE_RESIDENT_THRESHOLD", raising=False)
     monkeypatch.setattr(_impl, "page_cache_resident_ratio", lambda f: 1.0)
@@ -96,7 +96,7 @@ def test_choose_uses_configured_threshold(monkeypatch):
     assert _impl.choose_disk_backend_candidates(["a"]) == list(_impl.default_buffered_io_backend)
 
 
-# --------------------------------------------------------------------------- mincore 探针
+# --------------------------------------------------------------------------- mincore probe
 def test_probe_missing_file_returns_unknown(tmp_path):
     assert _impl.page_cache_resident_ratio(str(tmp_path / "nope.safetensors")) == -1.0
 
@@ -135,7 +135,7 @@ def test_probe_evicted_file_is_low(tmp_path):
     assert ratio <= 0.1
 
 
-# --------------------------------------------------------------------------- 调用点接线
+# --------------------------------------------------------------------------- call-site wiring
 class _FakeLoader:
     """Minimal stand-in: _determine_io_params only reads a handful of attributes."""
 

@@ -1,139 +1,162 @@
-# qwen35-forward — 自研 forward 的对照基建
+# qwen35-forward — a reference harness for a hand-written forward pass
 
-给你自己写 Qwen3.5 forward 用的**标准答案生成器**和**比较器**。纯 CPU，不需要 GPU，不需要下载大模型。
+A **golden-reference generator** and **comparator** for writing a Qwen3.5
+forward pass from scratch. Pure CPU: no GPU, no large model download.
 
-## 为什么需要它
+## Why it exists
 
-自研 forward 最大的风险不是写不出来，是**写错了还以为对**。没有能对的东西，你无法判断。
+The largest risk in writing a forward pass by hand is not failing to write it —
+it is **writing it wrong and believing it is right.** Without something to
+compare against, there is no way to tell.
 
-而且有些错**不会报错、不会崩**，只会让输出变成垃圾。本次实测抓到一个真实的例子：
+Some wrong implementations do not error and do not crash. They just turn the
+output into garbage. One real example was caught while building this:
 
 ```
 golden (x*(1+w)) absmax = 2.97936
-buggy  (x*w)     absmax = 0          ← 所有激活归零
+buggy  (x*w)     absmax = 0          <- every activation zeroed
 logits: golden absmax=0.541   buggy absmax=0
 ```
 
-`Qwen3_5RMSNorm` 用的是 **`x * (1 + w)`**，且 `w` **零初始化**。写成 `x * w` 让整个网络归零，
-模型照样跑完 22 个 token，只是全是垃圾。
+`Qwen3_5RMSNorm` computes **`x * (1 + w)`** with `w` **zero-initialised**.
+Writing it as `x * w` zeroes the whole network; the model still runs all 22
+tokens and produces nothing but garbage.
 
-## 目录
+## Where this sits
+
+Part of the [Siphon repository](../README.md), which also carries the loader
+itself and [`rust-qwen-engine/`](../rust-qwen-engine/), a Rust safetensors
+reader. The three trees share no code.
+
+## Layout
 
 ```
-golden/              金标准生成器 + 校验器（Python）
-  gen_golden.py       生成 bundle
-  validate_golden.py  验证 bundle 本身可信（可复现 / 完好 / 有区分度）
-  README.md           详细文档：格式、两个静默陷阱、区分数表
-bundle/              Rust 读取器 + 比较器
+golden/              reference generator + validator (Python)
+  gen_golden.py       generates a bundle
+  validate_golden.py  checks the bundle itself is trustworthy
+                      (reproducible / well-formed / discriminative)
+  README.md           detailed docs: format, the two silent traps, sensitivity table
+bundle/              Rust reader + comparator
   bundlecmp summary|show|compare|selftest
-golden_tiny/         已入库的金标准 bundle（gain=1.0，逐张量对照用）
-golden_sensitive/    已入库的金标准 bundle（gain=300，token 轨迹对照用）
+golden_tiny/         committed bundle (gain=1.0, for per-tensor comparison)
+golden_sensitive/    committed bundle (gain=300, for token-trace comparison)
 ```
 
-### 已入库的两份 bundle
+### The two committed bundles
 
 | | `golden_tiny` | `golden_sensitive` |
 |---|---|---|
-| `ssm_gain` | 1.0（官方初始化） | 300 |
-| 张量数 | 259 | 259 |
-| greedy 步数 | 16 | 16 |
-| 用途 | **逐张量对照**（任何 gain 下都敏感） | **token 轨迹对照**（gain=1 时轨迹对递归路径几乎不敏感） |
-| 大小 | 2.3 MB / 260 文件 | 2.3 MB / 260 文件 |
+| `ssm_gain` | 1.0 (official init) | 300 |
+| Tensors | 259 | 259 |
+| Greedy steps | 16 | 16 |
+| Purpose | **per-tensor comparison** (sensitive at any gain) | **token-trace comparison** (at gain=1 the trace is nearly blind to the recurrent path) |
+| Size | 2.3 MB / 260 files | 2.3 MB / 260 files |
 
-为什么需要两份，见下文"用数字说清那个取舍"。
+Why two are needed is shown in "The trade-off, in numbers" below.
 
-**它们是可以再生成的派生物**，随仓库提交只是为了让对比器开箱可用。
-改了 `gen_golden.py` 就必须重新生成并跑 `validate_golden.py`。
+**Both are regenerable artifacts.** They are committed only so the comparator
+works without a Python environment. Change `gen_golden.py` and you must
+regenerate, then run `validate_golden.py`.
 
-## 快速开始
+## Quick start
 
-**两份金标准 bundle 已随仓库提交，开箱即用，不需要 Python 环境：**
+**Both bundles are committed, so this works with no Python environment:**
 
 ```bash
-# 直接构建比较器并使用已入库的 bundle
+# build the comparator and use the committed bundles directly
 cargo build --release
 ./target/release/bundlecmp summary golden_tiny
 ./target/release/bundlecmp selftest golden_tiny
 ```
 
-想让你的实现和标准答案对照，把中间结果按同样布局写成 bundle 再跑：
+To compare your own implementation, write your intermediates in the same layout
+and point the comparator at them:
 
 ```bash
 ./target/release/bundlecmp compare golden_tiny <yours>
 ```
 
-若要重新生成（需要 `transformers` + `torch`，约 1 秒）：
+To regenerate (needs `transformers` + `torch`, about a second):
 
 ```bash
 python golden/gen_golden.py --out golden_tiny --tokens 16
 python golden/gen_golden.py --out golden_sensitive --ssm-gain 300 --tokens 16
 
-# 验证金标准本身可信 —— 改了生成器就必须做
+# verify the reference itself is trustworthy -- mandatory after changing the generator
 python golden/validate_golden.py --bundle golden_tiny
 ```
 
-## 对照的三层
+## Three levels of comparison
 
-顺序很重要：**从最便宜的开始，一次只引入一个未知量。**
+Order matters: **start with the cheapest, and introduce one unknown at a time.**
 
-| 层 | 目录 | 对照什么 | 敏感度 | 用途 |
+| Level | Directory | What is compared | Sensitivity | Use |
 |---|---|---|---|---|
-| **单元** | `units/` | 单独调 delta rule，喂 `q/k/v/g/beta`，比 `out` / `state` | 高 | **先做这个**。不碰 GGUF、不碰加载、不碰 CUDA |
-| **逐张量** | `intermediates/` | 每层每个算子的输出 | **高** | 定位"错在哪层哪个算子" |
-| **逐 token** | `manifest.greedy` | argmax 序列 + 每步 top-k logits | **低** | 端到端体检 |
+| **Unit** | `units/` | the delta rule alone: feed `q/k/v/g/beta`, compare `out` / `state` | high | **do this first.** No GGUF, no loading, no CUDA |
+| **Per-tensor** | `intermediates/` | every operator's output in every layer | **high** | locate *which layer, which operator* |
+| **Per-token** | `manifest.greedy` | the argmax sequence plus each step's top-k logits | **low** | end-to-end health check |
 
-## 用数字说清那个取舍
+## The trade-off, in numbers
 
-把 SSM 的衰减参数 `A_log` 扰动 1%，实测：
+Perturb the SSM decay parameter `A_log` by 1% and measure:
 
-| ssm_gain | 逐张量相对变化 | **greedy token 变化** |
+| ssm_gain | per-tensor relative change | **greedy tokens changed** |
 |---|---|---|
-| 1（官方初始化） | 5.6e-04 | **0 / 16** |
+| 1 (official init) | 5.6e-04 | **0 / 16** |
 | 30 | 1.3e-03 | **0 / 16** |
 | 100 | 3.2e-03 | **0 / 16** |
 | **300** | 1.5e+00 | **4 / 16** |
 
-**真实权重下递归路径只占残差的 0.113%**，所以"改 1% 权重 → token 一个不变"是必然的。
-要到 `ssm_gain=300` 才让 token 轨迹敏感，但那时递归路径已经压过残差，不真实了。
+**At real weight scale the recurrent path contributes only 0.113% of the
+residual**, so "change a weight by 1%, not one token moves" is inevitable. It
+takes `ssm_gain=300` to make the token trace sensitive, and at that point the
+recurrent path outweighs the residual, which is no longer realistic.
 
-→ 所以：**`golden_tiny`（gain=1）验逐张量；`golden_sensitive`（gain=300）验 token 轨迹。**
+→ So: **`golden_tiny` (gain=1) validates per-tensor; `golden_sensitive`
+(gain=300) validates the token trace.**
 
-## 实现者的契约
+## The implementer's contract
 
-写出同样布局的 bundle，然后 `bundlecmp compare <golden> <yours>`。
+Produce a bundle in the same layout, then
+`bundlecmp compare <golden> <yours>`.
 
 ```
 <bundle>/manifest.json
-<bundle>/weights/<name>.f32          原始 little-endian f32，C 连续
+<bundle>/weights/<name>.f32          raw little-endian f32, C-contiguous
 <bundle>/intermediates/<name>.f32
 <bundle>/units/<name>.f32
 ```
 
-命名规则：**模块路径里的 `.` 换成 `__`**
+Naming rule: **replace `.` in the module path with `__`**
 
 ```
-model.layers.0.linear_attn.out_proj  →  model__layers__0__linear_attn__out_proj
+model.layers.0.linear_attn.out_proj  ->  model__layers__0__linear_attn__out_proj
 ```
 
-**不用 `.npy` 是刻意的** —— 消费方是 Rust，手写 npy 解析器是没必要的分歧来源。
+**Avoiding `.npy` is deliberate** — the consumer is Rust, and a hand-rolled npy
+parser would be a needless source of disagreement.
 
-## 比较器验证过它能抓到 bug
+## The comparator was verified to actually catch bugs
 
-| 测试 | 结果 |
+| Test | Result |
 |---|---|
-| `selftest`（与自己比） | **PASS** —— 259 张量 0 非零，证明比较器自反 |
-| 自己 vs 自己 | **PASS** —— 259 张量全部 bit-identical |
-| tiny vs sensitive | **FAIL** —— 指出首个分歧 token 6，`rel=2.990e2`（正好等于 gain−1=299，数学自洽） |
-| **`x*w` 而非 `x*(1+w)` 的 bug** | **FAIL** —— 104/123 张量不同，`rel=1.000`，精确定位 `input_layernorm` |
+| `selftest` (against itself) | **PASS** — 259 tensors, 0 non-zero; the comparator is reflexive |
+| self vs self | **PASS** — all 259 tensors bit-identical |
+| tiny vs sensitive | **FAIL** — reports first divergence at token 6, `rel=2.990e2` (exactly gain−1=299, so the arithmetic is self-consistent) |
+| the **`x*w` instead of `x*(1+w)`** bug | **FAIL** — 104/123 tensors differ, `rel=1.000`, pinpointing `input_layernorm` |
 
-### 一个被这个测试暴露的漏洞（已修）
+### A hole this testing exposed (now fixed)
 
-第一次跑 `x*w` 的 bug 时，**token 轨迹竟显示"完全一致"** —— 因为被比较的是
-**候选 manifest 里抄来的 token id**，而候选的 logits 全是 0。
+On the first run of the `x*w` bug, the **token trace reported "identical"** —
+because what was being compared was the **token ids copied out of the candidate's
+own manifest**, while the candidate's logits were all zero.
 
-**真实漏洞：比较器信任候选自己记录的 token id。** 一个实现可以写对 id 而 logits 全错。
+**The real hole: the comparator trusted the token ids a candidate recorded about
+itself.** An implementation can record correct ids while its logits are entirely
+wrong.
 
-修法：现在比较器会**从候选自己的 `greedy_stepNN__logits` 反推 argmax**，与它记录的 id 对账：
+The fix: the comparator now **derives argmax from the candidate's own
+`greedy_stepNN__logits`** and reconciles that against the recorded ids:
 
 ```
 !! CANDIDATE token ids disagree with its own logits at 1 of 16 steps:
@@ -141,18 +164,18 @@ model.layers.0.linear_attn.out_proj  →  model__layers__0__linear_attn__out_pro
    (recorded ids are not trustworthy; the logits are the ground truth)
 ```
 
-## 两个会静默杀死网络的陷阱
+## Two traps that silently kill the network
 
-### 1. 归一化有**两种**约定，写反不报错
+### 1. Normalisation has **two** conventions, and getting it wrong is silent
 
-| Norm | 公式 | 权重初始化 | 实测值 |
+| Norm | Formula | Weight init | Measured |
 |---|---|---|---|
-| `Qwen3_5RMSNorm`（`input_layernorm` / `post_attention_layernorm` / `q_norm` / `k_norm`） | `x * (1 + w)` | **零** | 全 0 ✓ |
-| `Qwen3_5RMSNormGated`（`linear_attn.norm`） | `w * x`，再乘 `silu(gate)` | 一 | 全 1 ✓ |
+| `Qwen3_5RMSNorm` (`input_layernorm` / `post_attention_layernorm` / `q_norm` / `k_norm`) | `x * (1 + w)` | **zero** | all 0 |
+| `Qwen3_5RMSNormGated` (`linear_attn.norm`) | `w * x`, then multiply by `silu(gate)` | one | all 1 |
 
-源码注释：`Llama does x.to(float16) * w whilst Qwen3_5 is (x * w).to(float16)`
+A comment in the source: `Llama does x.to(float16) * w whilst Qwen3_5 is (x * w).to(float16)`
 
-### 2. `q_proj` 输出是 2 倍，一半是门控
+### 2. `q_proj` output is doubled, and half of it is a gate
 
 ```python
 query_states, gate = torch.chunk(
@@ -161,18 +184,19 @@ query_states, gate = torch.chunk(
 attn_output = attn_output * torch.sigmoid(gate)
 ```
 
-**`config.json` 写 `output_gate_type: "swish"`，代码用 `sigmoid`** —— 读源码，别读配置。
+**`config.json` says `output_gate_type: "swish"` while the code uses `sigmoid`**
+— read the source, not the config.
 
-## 金标准的可信度（已实测）
+## Confidence in the reference (measured)
 
 ```
-[PASS] 260 个文件跨运行逐字节一致
-[PASS] 259 张量完好（无 NaN/Inf，无全零激活）
-[PASS] eps=0 逐次 bit-identical
-[PASS] delta rule 自检：recurrent vs chunked 吻合到 1e-8 / 1e-7
+[PASS] 260 files byte-identical across runs
+[PASS] 259 tensors well-formed (no NaN/Inf, no all-zero activations)
+[PASS] eps=0 is bit-identical run to run
+[PASS] delta-rule self-check: recurrent vs chunked agree to 1e-8 / 1e-7
 ```
 
-delta rule 自检先验证了**参考实现本身**：
+The delta-rule self-check validates **the reference implementation itself**:
 
 ```
 delta B1_H2_T6_K16_V16: recurrent vs chunked  out 2.235e-08  state 5.960e-08
@@ -180,10 +204,18 @@ delta B1_H2_T1_K16_V16: recurrent vs chunked  out 1.118e-08  state 5.960e-08
 delta B2_H3_T5_K8_V8 : recurrent vs chunked  out 2.980e-08  state 1.192e-07
 ```
 
-## 已知限制
+## Known limitations
 
-- **token 轨迹对递归路径不敏感**（已量化，见上表）。不是 bug，是真实权重尺度下的必然。
-- **无 cache**。greedy 每步重跑整个 forward，刻意把**数学**与 cache 记账隔离：轨迹若分歧，原因在 forward 而不在 cache。cache 语义需单独金标准。
-- **随机权重的极小模型**（367,952 参数）。它验证"数学实现对不对"，不是"模型能力强不强"。
-- **`linear_num_value_heads=4` / `linear_num_key_heads=2`，故意让 ratio=2**，从而走 `query.repeat_interleave(...)` 那条 GQA 分支（27B 的 ratio=3 走，2B 的 ratio=1 不走 —— 只在 2B 上开发会漏掉）。
-- 真实模型验收需要另一份金标准（`--model-dir`），但 27B fp16 需 ~52 GiB 内存。
+- **The token trace is insensitive to the recurrent path** (quantified above).
+  Not a bug — an inevitable consequence of real weight scale.
+- **No cache.** Greedy re-runs the whole forward each step, deliberately
+  isolating the *math* from cache bookkeeping: if the trace diverges, the cause
+  is the forward, not the cache. Cache semantics need their own reference.
+- **A tiny model with random weights** (367,952 parameters). It validates
+  whether the math is implemented correctly, not whether the model is capable.
+- **`linear_num_value_heads=4` / `linear_num_key_heads=2`, deliberately ratio=2**,
+  so the `query.repeat_interleave(...)` GQA branch is exercised (the 27B has
+  ratio=3 and takes it; the 2B has ratio=1 and does not — developing only on the
+  2B would miss this path entirely).
+- Validating a real model needs a separate reference (`--model-dir`), and a 27B
+  in fp16 needs about 52 GiB of memory.
