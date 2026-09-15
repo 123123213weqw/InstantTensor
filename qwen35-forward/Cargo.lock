@@ -10,6 +10,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "gdn"
+version = "0.1.0"
+dependencies = [
+ "deltarule",
+ "goldenbundle",
+]
+
+[[package]]
 name = "goldenbundle"
 version = "0.1.0"
 dependencies = [

@@ -92,6 +92,24 @@ fn idx_state(s: &Shape, bi: usize, hi: usize, ki: usize, vi: usize) -> usize {
 ///   with the final state.
 ///
 /// Returns `out [B, T, H, V]`.
+/// Check every operand against the declared shape.
+///
+/// Called before any indexing, including from [`forward_prepared`] *before* it
+/// normalises, because `prepare_qk` indexes `q`/`k` using `B*T*H` rows. Without
+/// this a mismatch such as a caller that forgot the GQA head expansion panics
+/// inside the normalisation loop at an index that says nothing about which
+/// operand was wrong.
+pub fn validate_operands(s: &Shape, q: &[f32], k: &[f32], v: &[f32], g: &[f32], beta: &[f32]) {
+    let want_qk = s.b * s.t * s.h * s.k;
+    let want_v = s.b * s.t * s.h * s.v;
+    let want_gb = s.b * s.t * s.h;
+    assert_eq!(q.len(), want_qk, "delta rule: q length vs shape {s:?}");
+    assert_eq!(k.len(), want_qk, "delta rule: k length vs shape {s:?}");
+    assert_eq!(v.len(), want_v, "delta rule: v length vs shape {s:?}");
+    assert_eq!(g.len(), want_gb, "delta rule: g length vs shape {s:?}");
+    assert_eq!(beta.len(), want_gb, "delta rule: beta length vs shape {s:?}");
+}
+
 pub fn forward(
     s: &Shape,
     q: &[f32],
@@ -101,6 +119,11 @@ pub fn forward(
     beta: &[f32],
     state: &mut [f32],
 ) -> Vec<f32> {
+    validate_operands(s, q, k, v, g, beta);
+    // state is [B, H, K, V] -- no time axis; it is the recurrent state.
+    let want_state = s.b * s.h * s.k * s.v;
+    assert_eq!(state.len(), want_state, "delta rule: state length vs shape {s:?}");
+
     let mut out = vec![0f32; s.b * s.t * s.h * s.v];
 
     for bi in 0..s.b {
@@ -166,6 +189,7 @@ pub fn forward_prepared(
     g: &[f32],
     beta: &[f32],
 ) -> (Vec<f32>, Vec<f32>) {
+    validate_operands(s, q_in, k_in, v, g, beta);
     let mut q = q_in.to_vec();
     let mut k = k_in.to_vec();
     prepare_qk(&mut q, &mut k, s.b, s.t, s.h, s.k);

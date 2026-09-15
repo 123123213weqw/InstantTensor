@@ -34,6 +34,8 @@ bundle/              Rust reader + comparator
   bundlecmp summary|show|compare|selftest
 delta/               the gated delta rule, checked against the unit golden
   deltacheck <bundle>
+gdn/                 the gated delta net block (rule + projections + conv + norm)
+  gdncheck <bundle> [--layer N] [--input TENSOR]
 golden_tiny/         committed bundle (gain=1.0, for per-tensor comparison)
 golden_sensitive/    committed bundle (gain=300, for token-trace comparison)
 ```
@@ -132,6 +134,102 @@ the reference implementation:
   cannot hide behind this target.
 - **`strong_decay_forgets_history`** — as `g → -inf` the state is wiped each
   step, so every step must reduce to its own contribution.
+
+## Step two: the gated delta net block
+
+`gdn/` is the shell around the rule — the projections, the convolution, the
+gating and the output norm — validated against every intermediate the bundle
+captures for `layers.0`, in chain order.
+
+```bash
+cargo build --release
+./target/release/gdncheck golden_tiny
+cargo test -p gdn
+```
+
+### Result: 17 of 17 checks pass
+
+```
+   1. input_layernorm        abs=4.768e-7    rel=1.600e-7    ok
+   2. in_proj_qkv            abs=1.788e-7    rel=3.348e-7    ok
+   3. conv input             abs=1.788e-7    rel=3.348e-7    ok
+   4. conv + silu            abs=1.863e-9    rel=1.378e-7    ok
+   5. in_proj_z              abs=1.192e-7    rel=2.590e-7    ok
+   6. in_proj_b              abs=8.941e-8    rel=2.683e-7    ok
+   7. in_proj_a              abs=5.960e-8    rel=1.932e-7    ok
+   8. q (post-GQA)           abs=1.048e-9    rel=1.030e-7    ok
+   9. k (post-GQA)           abs=1.164e-9    rel=8.612e-8    ok
+  10. v                      abs=1.863e-9    rel=1.588e-7    ok
+  11. g (decay)              abs=1.907e-6    rel=9.592e-8    ok
+  12. beta (gate)            abs=0.000e0     rel=0.000e0     ok
+  13. delta rule out         abs=1.746e-10   rel=4.164e-7    ok
+  14. delta rule state       abs=5.239e-10   rel=1.780e-7    ok
+  15. gated norm             abs=1.304e-8    rel=2.752e-7    ok
+  16. out_proj               abs=1.630e-9    rel=4.834e-7    ok
+  17. block output           abs=1.630e-9    rel=4.834e-7    ok
+
+   RESULT: PASS (17 checks)
+```
+
+Errors are at `1e-7` or below, which is f32 rounding for a chain this long.
+
+### The check was verified to have teeth
+
+Seven bugs injected, and the **first failing check names the operator** in every
+case that did not simply crash:
+
+| Injected bug | First failing check |
+|---|---|
+| gated norm uses `(1+w)` instead of `w` | **15. gated norm** |
+| `input_layernorm` uses `w` instead of `(1+w)` | **1. input_layernorm** |
+| `g` drops the `exp` on `A_log` | **11. g (decay)** |
+| `beta` drops the sigmoid | **12. beta (gate)** |
+| convolution becomes non-causal | **4. conv + silu** |
+| rmsnorm forgets to divide by `dim` | **1. input_layernorm** |
+| GQA head expansion skipped | crashed (see below) |
+
+That ordering is the point of checking intermediates one by one rather than only
+comparing the block's output: a wrong `g` is reported as a wrong `g`, not as "the
+block output differs".
+
+### A crash the mutation run exposed
+
+Skipping the GQA expansion made the delta rule index past the end of `q` and
+panic with a bare `index out of bounds: the len is 192 but the index is 192` — no
+mention of which operand or what shape was expected.
+
+The rule now validates every operand against the declared shape **before**
+indexing, and `forward_prepared` validates before it normalises (the normalisation
+indexes using `B*T*H` rows, so it fails earliest). The same injection now reports:
+
+```
+assertion `left == right` failed: delta rule: q length vs shape
+  Shape { b: 1, t: 6, h: 4, k: 16, v: 16 }
+```
+
+### Two conventions, both easy to invert
+
+Both are checked by a dedicated unit test, because neither raises an error when
+wrong:
+
+* `input_layernorm` is `Qwen3_5RMSNorm`: **`x * (1 + w)`**, weight zero-initialised.
+* `linear_attn.norm` is `Qwen3_5RMSNormGated`: **`w * x_hat * silu(z)`**, plain `w`.
+
+### Where the GQA expansion sits
+
+`repeat_interleave` on the head axis happens **before** the delta rule, so the
+rule sees `num_v_heads`, not `num_k_heads` — confirmed by the captured operands
+being `[1, 6, 4, 16]` while `num_k_heads` is 2. The implementation does the same,
+and the skip-GQA injection above is what proves the ordering matters.
+
+### A note on the block input
+
+`gdncheck` needs the block's *input*, not the layernorm's output. For layer 0 that
+is `model__embed_tokens`. Layers above 0 would need the previous layer's
+residual-stream output, which the bundle does not capture (only submodule outputs
+are hooked), so those require an explicit `--input <tensor>`; `gdncheck` refuses
+rather than silently normalising an already-normalised tensor — which is exactly
+the mistake the first run made.
 
 ## The two committed bundles
 

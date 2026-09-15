@@ -1,0 +1,14 @@
+[package]
+name = "gdn"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Qwen3.5 gated delta net block, checked against the golden bundle"
+
+[[bin]]
+name = "gdncheck"
+path = "src/main.rs"
+
+[dependencies]
+goldenbundle = { path = "../bundle" }
+deltarule = { path = "../delta" }
