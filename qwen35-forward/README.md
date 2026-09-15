@@ -22,12 +22,6 @@ logits: golden absmax=0.541   buggy absmax=0
 Writing it as `x * w` zeroes the whole network; the model still runs all 22
 tokens and produces nothing but garbage.
 
-## Where this sits
-
-Part of the [Siphon repository](../README.md), which also carries the loader
-itself and [`rust-qwen-engine/`](../rust-qwen-engine/), a Rust safetensors
-reader. The three trees share no code.
-
 ## Layout
 
 ```
@@ -38,11 +32,108 @@ golden/              reference generator + validator (Python)
   README.md           detailed docs: format, the two silent traps, sensitivity table
 bundle/              Rust reader + comparator
   bundlecmp summary|show|compare|selftest
+delta/               the gated delta rule, checked against the unit golden
+  deltacheck <bundle>
 golden_tiny/         committed bundle (gain=1.0, for per-tensor comparison)
 golden_sensitive/    committed bundle (gain=300, for token-trace comparison)
 ```
 
-### The two committed bundles
+## Step one: the gated delta rule
+
+`delta/` is the first piece of the forward pass that this harness validates. It
+is the right place to start because it is **48 of the 64 layers** in qwen35, it is
+pure math with no GGUF, no model loading and no CUDA, and it has a closed form at
+`T=1` that gives a target independent of the reference implementation.
+
+```bash
+cargo build --release
+./target/release/deltacheck golden_tiny
+cargo test -p deltarule
+```
+
+The rule, per `(batch, head)` and per time step:
+
+```text
+state  = state * exp(g_t)                 // decay
+kv_mem = (state * k_t).sum(over K)        // read out
+delta  = (v_t - kv_mem) * beta_t          // prediction error
+state  = state + outer(k_t, delta)        // rank-1 correction
+out_t  = (state * q_t).sum(over K)        // read out
+```
+
+with `l2norm` over the head dimension applied to `q` and `k` first, and `q` then
+scaled by `1/sqrt(K)`.
+
+### Result
+
+```
+   B1_H2_T1_K16_V16       recurrent out   abs=9.313e-9    rel=4.207e-7    ok
+   B1_H2_T1_K16_V16       recurrent state abs=0.000e0     rel=0.000e0     ok
+   B1_H2_T1_K16_V16         chunked out   abs=9.313e-9    rel=4.207e-7    ok
+   B1_H2_T6_K16_V16       recurrent out   abs=2.980e-8    rel=1.607e-7    ok
+   B1_H2_T6_K16_V16       recurrent state abs=2.980e-8    rel=7.690e-8    ok
+   B1_H2_T6_K16_V16         chunked out   abs=5.215e-8    rel=2.812e-7    ok
+   B2_H3_T5_K8_V8         recurrent out   abs=2.980e-8    rel=8.736e-8    ok
+   B2_H3_T5_K8_V8         recurrent state abs=5.960e-8    rel=6.458e-8    ok
+   B2_H3_T5_K8_V8           chunked out   abs=7.451e-8    rel=2.184e-7    ok
+
+   RESULT: PASS (3 cases, both recurrent and chunked forms)
+```
+
+Errors sit at `1e-8..1e-7`, which is exactly where the reference's own two forms
+agree with each other. The implementation is essentially exact.
+
+**Both forms are checked.** The recurrent form is what decode uses and the
+chunked form is what prefill uses; they are computed independently by the
+reference, so passing both means satisfying two targets for one operator.
+
+### The check was verified to have teeth
+
+An assertion nobody has seen fail is not evidence. Seven bugs were injected and
+all seven were caught:
+
+| Injected bug | Caught? |
+|---|---|
+| drop the `l2norm` on `q`/`k` | **FAIL (3 of 3 cases)** |
+| drop the `1/sqrt(K)` scaling of `q` | **FAIL (3 of 3 cases)** |
+| use `g` instead of `exp(g)` for decay | **FAIL (2 of 3 cases)** |
+| drop `beta` from `delta` | **FAIL (3 of 3 cases)** |
+| drop the state decay entirely | **FAIL (2 of 3 cases)** |
+| index the rank-1 update wrongly | **FAIL (3 of 3 cases)** |
+| drop `k` from `kv_mem` | **FAIL (2 of 3 cases)** |
+
+Failure diagnostics are actionable — the error jumps by seven orders of
+magnitude and the offending element is named:
+
+```
+   B1_H2_T6_K16_V16       recurrent out   abs=2.594e-1    rel=1.398e0     FAIL
+        worst at index 125  mine=0.07389838 golden=-0.1854713
+```
+
+### A limitation the mutation test exposed
+
+The three `T=1`, `T=6` and `T=5` cases do not have equal power. The decay, the
+`kv_mem` read-out and the state update all involve the state, and **at `T=1` the
+state starts at zero, so every one of those bugs is invisible**. That is why
+three of the seven injected bugs fail only 2 of 3 cases: the `T=1` case passes
+regardless.
+
+`T=1` still earns its place — it is the only case with a closed form (see
+`t1_matches_closed_form`) — but it cannot substitute for a `T>1` case.
+
+### Tests beyond the golden
+
+`cargo test -p deltarule` (5 tests) includes two checks that do **not** depend on
+the reference implementation:
+
+- **`t1_matches_closed_form`** — at `T=1` with a zero initial state the
+  recurrence collapses to `out[vi] = (k·q) * beta * v[vi]` and
+  `state[ki,vi] = k[ki] * v[vi] * beta`. A mistake inherited from the reference
+  cannot hide behind this target.
+- **`strong_decay_forgets_history`** — as `g → -inf` the state is wiped each
+  step, so every step must reduce to its own contribution.
+
+## The two committed bundles
 
 | | `golden_tiny` | `golden_sensitive` |
 |---|---|---|

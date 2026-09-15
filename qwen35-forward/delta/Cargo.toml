@@ -1,0 +1,13 @@
+[package]
+name = "deltarule"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Gated delta rule (Qwen3.5 linear attention) checked against the golden bundle"
+
+[[bin]]
+name = "deltacheck"
+path = "src/main.rs"
+
+[dependencies]
+goldenbundle = { path = "../bundle" }

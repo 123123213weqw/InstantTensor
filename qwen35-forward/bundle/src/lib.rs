@@ -160,7 +160,7 @@ impl Bundle {
             ));
         }
         let mut out = Vec::with_capacity(e.numel);
-        out.extend(raw.chunks_exact(4).map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]])));
+        out.extend(raw.as_chunks::<4>().0.iter().map(|b| f32::from_le_bytes(*b)));
         debug_assert_eq!(out.len(), e.numel);
         Ok(out)
     }

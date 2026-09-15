@@ -1,5 +1,5 @@
 [workspace]
-members = ["bundle"]
+members = ["bundle", "delta"]
 resolver = "2"
 
 [workspace.package]

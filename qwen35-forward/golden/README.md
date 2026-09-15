@@ -109,12 +109,6 @@ attn_output = attn_output * torch.sigmoid(gate)
 And **`config.json` says `output_gate_type: "swish"` while the code uses
 `sigmoid`** — read the source, not the config.
 
-## Where this sits
-
-Part of the [Siphon repository](../../README.md), in the
-[`qwen35-forward/`](../README.md) tree. See that tree's README for the three
-comparison levels and the comparator.
-
 ## Bundle structure
 
 ```
@@ -146,6 +140,23 @@ let vals: Vec<f32> = raw.chunks_exact(4)
 
 ```
 model.layers.0.linear_attn.out_proj  ->  model__layers__0__linear_attn__out_proj
+```
+
+### The delta-rule units use the real model's layout
+
+`Qwen3_5GatedDeltaNet.forward` passes `[B, T, H, K]` — the rule's first statement
+is a `transpose(1, 2)` into `[B, H, T, K]`. An earlier version of the generator
+passed `[B, H, T, K]` instead. The arithmetic stayed self-consistent, but the
+recorded shapes had the `T` and `H` axes swapped, which would have been a trap
+for anyone validating a real forward pass against this bundle.
+
+The units now follow the model:
+
+```
+q, k, v        [B, T, H, *]
+g, beta        [B, T, H]
+out            [B, T, H, V]
+state          [B, H, K, V]
 ```
 
 ## Three levels of comparison

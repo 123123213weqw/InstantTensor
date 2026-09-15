@@ -185,17 +185,30 @@ class HookRecorder:
 # --------------------------------------------------------------------------- #
 
 def dump_delta_rule(bundle: Bundle, m, seed: int = 1234) -> dict:
+    """Golden for the gated delta rule, in the layout the real model uses.
+
+    `Qwen3_5GatedDeltaNet.forward` passes `[B, T, H, K]`, not `[B, H, T, K]`:
+    the rule's first statement is `x.transpose(1, 2)`, which turns `[B, T, H, K]`
+    into `[B, H, T, K]`. Feeding `[B, H, T, K]` still produces self-consistent
+    numbers but silently swaps the meaning of the T and H axes, which would be a
+    trap for anyone validating a real forward pass against this bundle.
+
+    Outputs therefore come back as:
+      out   `[B, T, H, V]`
+      state `[B, H, K, V]`
+    """
     g = torch.Generator().manual_seed(seed)
     report = {}
     shapes = [(1, 2, 6, 16, 16, 4), (1, 2, 1, 16, 16, 4), (2, 3, 5, 8, 8, 4)]
     for B, H, T, K, V, CS in shapes:
         tag = f"B{B}_H{H}_T{T}_K{K}_V{V}"
-        q = torch.randn(B, H, T, K, generator=g)
-        k = torch.randn(B, H, T, K, generator=g)
-        v = torch.randn(B, H, T, V, generator=g)
+        # [B, T, H, *] -- the real model's convention.
+        q = torch.randn(B, T, H, K, generator=g)
+        k = torch.randn(B, T, H, K, generator=g)
+        v = torch.randn(B, T, H, V, generator=g)
         # g is a log-decay; keep it negative so exp(g) decays in (0, 1).
-        gg = -torch.rand(B, H, T, generator=g) * 1.5
-        beta = torch.rand(B, H, T, generator=g)
+        gg = -torch.rand(B, T, H, generator=g) * 1.5
+        beta = torch.rand(B, T, H, generator=g)
 
         for nm, t in (("q", q), ("k", k), ("v", v), ("g", gg), ("beta", beta)):
             bundle.write("units", f"delta_{tag}__{nm}", t)

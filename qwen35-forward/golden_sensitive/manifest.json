@@ -81,14 +81,14 @@
   "delta_rule_selfcheck": {
     "B1_H2_T6_K16_V16": {
       "recurrent_vs_chunked_out_max_abs": 2.2351741790771484e-08,
-      "recurrent_vs_chunked_state_max_abs": 5.960464477539063e-08
+      "recurrent_vs_chunked_state_max_abs": 4.470348358154297e-08
     },
     "B1_H2_T1_K16_V16": {
       "recurrent_vs_chunked_out_max_abs": 1.1175870895385742e-08,
-      "recurrent_vs_chunked_state_max_abs": 5.960464477539063e-08
+      "recurrent_vs_chunked_state_max_abs": 0.0
     },
     "B2_H3_T5_K8_V8": {
-      "recurrent_vs_chunked_out_max_abs": 2.9802322387695312e-08,
+      "recurrent_vs_chunked_out_max_abs": 8.940696716308594e-08,
       "recurrent_vs_chunked_state_max_abs": 1.1920928955078125e-07
     }
   },
@@ -1488,8 +1488,8 @@
       "file": "units/delta_B1_H2_T6_K16_V16__q.f32",
       "shape": [
         1,
-        2,
         6,
+        2,
         16
       ],
       "dtype": "f32",
@@ -1502,8 +1502,8 @@
       "file": "units/delta_B1_H2_T6_K16_V16__k.f32",
       "shape": [
         1,
-        2,
         6,
+        2,
         16
       ],
       "dtype": "f32",
@@ -1516,8 +1516,8 @@
       "file": "units/delta_B1_H2_T6_K16_V16__v.f32",
       "shape": [
         1,
-        2,
         6,
+        2,
         16
       ],
       "dtype": "f32",
@@ -1530,8 +1530,8 @@
       "file": "units/delta_B1_H2_T6_K16_V16__g.f32",
       "shape": [
         1,
-        2,
-        6
+        6,
+        2
       ],
       "dtype": "f32",
       "numel": 12,
@@ -1543,8 +1543,8 @@
       "file": "units/delta_B1_H2_T6_K16_V16__beta.f32",
       "shape": [
         1,
-        2,
-        6
+        6,
+        2
       ],
       "dtype": "f32",
       "numel": 12,
@@ -1556,8 +1556,8 @@
       "file": "units/delta_B1_H2_T6_K16_V16__recurrent_out.f32",
       "shape": [
         1,
-        2,
         6,
+        2,
         16
       ],
       "dtype": "f32",
@@ -1570,13 +1570,13 @@
       "file": "units/delta_B1_H2_T6_K16_V16__recurrent_state.f32",
       "shape": [
         1,
-        6,
+        2,
         16,
         16
       ],
       "dtype": "f32",
-      "numel": 1536,
-      "nbytes": 6144
+      "numel": 512,
+      "nbytes": 2048
     },
     {
       "group": "units",
@@ -1584,8 +1584,8 @@
       "file": "units/delta_B1_H2_T6_K16_V16__chunked_out.f32",
       "shape": [
         1,
-        2,
         6,
+        2,
         16
       ],
       "dtype": "f32",
@@ -1598,13 +1598,13 @@
       "file": "units/delta_B1_H2_T6_K16_V16__chunked_state.f32",
       "shape": [
         1,
-        6,
+        2,
         16,
         16
       ],
       "dtype": "f32",
-      "numel": 1536,
-      "nbytes": 6144
+      "numel": 512,
+      "nbytes": 2048
     },
     {
       "group": "units",
@@ -1612,8 +1612,8 @@
       "file": "units/delta_B1_H2_T1_K16_V16__q.f32",
       "shape": [
         1,
-        2,
         1,
+        2,
         16
       ],
       "dtype": "f32",
@@ -1626,8 +1626,8 @@
       "file": "units/delta_B1_H2_T1_K16_V16__k.f32",
       "shape": [
         1,
-        2,
         1,
+        2,
         16
       ],
       "dtype": "f32",
@@ -1640,8 +1640,8 @@
       "file": "units/delta_B1_H2_T1_K16_V16__v.f32",
       "shape": [
         1,
-        2,
         1,
+        2,
         16
       ],
       "dtype": "f32",
@@ -1654,8 +1654,8 @@
       "file": "units/delta_B1_H2_T1_K16_V16__g.f32",
       "shape": [
         1,
-        2,
-        1
+        1,
+        2
       ],
       "dtype": "f32",
       "numel": 2,
@@ -1667,8 +1667,8 @@
       "file": "units/delta_B1_H2_T1_K16_V16__beta.f32",
       "shape": [
         1,
-        2,
-        1
+        1,
+        2
       ],
       "dtype": "f32",
       "numel": 2,
@@ -1680,8 +1680,8 @@
       "file": "units/delta_B1_H2_T1_K16_V16__recurrent_out.f32",
       "shape": [
         1,
-        2,
         1,
+        2,
         16
       ],
       "dtype": "f32",
@@ -1694,13 +1694,13 @@
       "file": "units/delta_B1_H2_T1_K16_V16__recurrent_state.f32",
       "shape": [
         1,
-        1,
+        2,
         16,
         16
       ],
       "dtype": "f32",
-      "numel": 256,
-      "nbytes": 1024
+      "numel": 512,
+      "nbytes": 2048
     },
     {
       "group": "units",
@@ -1708,8 +1708,8 @@
       "file": "units/delta_B1_H2_T1_K16_V16__chunked_out.f32",
       "shape": [
         1,
-        2,
         1,
+        2,
         16
       ],
       "dtype": "f32",
@@ -1722,13 +1722,13 @@
       "file": "units/delta_B1_H2_T1_K16_V16__chunked_state.f32",
       "shape": [
         1,
-        1,
+        2,
         16,
         16
       ],
       "dtype": "f32",
-      "numel": 256,
-      "nbytes": 1024
+      "numel": 512,
+      "nbytes": 2048
     },
     {
       "group": "units",
@@ -1736,8 +1736,8 @@
       "file": "units/delta_B2_H3_T5_K8_V8__q.f32",
       "shape": [
         2,
-        3,
         5,
+        3,
         8
       ],
       "dtype": "f32",
@@ -1750,8 +1750,8 @@
       "file": "units/delta_B2_H3_T5_K8_V8__k.f32",
       "shape": [
         2,
-        3,
         5,
+        3,
         8
       ],
       "dtype": "f32",
@@ -1764,8 +1764,8 @@
       "file": "units/delta_B2_H3_T5_K8_V8__v.f32",
       "shape": [
         2,
-        3,
         5,
+        3,
         8
       ],
       "dtype": "f32",
@@ -1778,8 +1778,8 @@
       "file": "units/delta_B2_H3_T5_K8_V8__g.f32",
       "shape": [
         2,
-        3,
-        5
+        5,
+        3
       ],
       "dtype": "f32",
       "numel": 30,
@@ -1791,8 +1791,8 @@
       "file": "units/delta_B2_H3_T5_K8_V8__beta.f32",
       "shape": [
         2,
-        3,
-        5
+        5,
+        3
       ],
       "dtype": "f32",
       "numel": 30,
@@ -1804,8 +1804,8 @@
       "file": "units/delta_B2_H3_T5_K8_V8__recurrent_out.f32",
       "shape": [
         2,
-        3,
         5,
+        3,
         8
       ],
       "dtype": "f32",
@@ -1818,13 +1818,13 @@
       "file": "units/delta_B2_H3_T5_K8_V8__recurrent_state.f32",
       "shape": [
         2,
-        5,
+        3,
         8,
         8
       ],
       "dtype": "f32",
-      "numel": 640,
-      "nbytes": 2560
+      "numel": 384,
+      "nbytes": 1536
     },
     {
       "group": "units",
@@ -1832,8 +1832,8 @@
       "file": "units/delta_B2_H3_T5_K8_V8__chunked_out.f32",
       "shape": [
         2,
-        3,
         5,
+        3,
         8
       ],
       "dtype": "f32",
@@ -1846,13 +1846,13 @@
       "file": "units/delta_B2_H3_T5_K8_V8__chunked_state.f32",
       "shape": [
         2,
-        5,
+        3,
         8,
         8
       ],
       "dtype": "f32",
-      "numel": 640,
-      "nbytes": 2560
+      "numel": 384,
+      "nbytes": 1536
     },
     {
       "group": "intermediates",
