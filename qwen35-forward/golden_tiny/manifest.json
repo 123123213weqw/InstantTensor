@@ -95,7 +95,6 @@
   "hooked_modules": [
     "model.embed_tokens",
     "model.layers.0.linear_attn",
-    "model.layers.0.linear_attn.conv1d",
     "model.layers.0.linear_attn.norm",
     "model.layers.0.linear_attn.out_proj",
     "model.layers.0.linear_attn.in_proj_qkv",
@@ -109,7 +108,6 @@
     "model.layers.0.input_layernorm",
     "model.layers.0.post_attention_layernorm",
     "model.layers.1.linear_attn",
-    "model.layers.1.linear_attn.conv1d",
     "model.layers.1.linear_attn.norm",
     "model.layers.1.linear_attn.out_proj",
     "model.layers.1.linear_attn.in_proj_qkv",
@@ -123,7 +121,6 @@
     "model.layers.1.input_layernorm",
     "model.layers.1.post_attention_layernorm",
     "model.layers.2.linear_attn",
-    "model.layers.2.linear_attn.conv1d",
     "model.layers.2.linear_attn.norm",
     "model.layers.2.linear_attn.out_proj",
     "model.layers.2.linear_attn.in_proj_qkv",
@@ -150,7 +147,6 @@
     "model.layers.3.input_layernorm",
     "model.layers.3.post_attention_layernorm",
     "model.layers.4.linear_attn",
-    "model.layers.4.linear_attn.conv1d",
     "model.layers.4.linear_attn.norm",
     "model.layers.4.linear_attn.out_proj",
     "model.layers.4.linear_attn.in_proj_qkv",
@@ -164,7 +160,6 @@
     "model.layers.4.input_layernorm",
     "model.layers.4.post_attention_layernorm",
     "model.layers.5.linear_attn",
-    "model.layers.5.linear_attn.conv1d",
     "model.layers.5.linear_attn.norm",
     "model.layers.5.linear_attn.out_proj",
     "model.layers.5.linear_attn.in_proj_qkv",
@@ -178,7 +173,6 @@
     "model.layers.5.input_layernorm",
     "model.layers.5.post_attention_layernorm",
     "model.layers.6.linear_attn",
-    "model.layers.6.linear_attn.conv1d",
     "model.layers.6.linear_attn.norm",
     "model.layers.6.linear_attn.out_proj",
     "model.layers.6.linear_attn.in_proj_qkv",
@@ -1945,6 +1939,128 @@
     },
     {
       "group": "intermediates",
+      "name": "causal_conv1d_fn_call0_in",
+      "file": "intermediates/causal_conv1d_fn_call0_in.f32",
+      "shape": [
+        1,
+        128,
+        6
+      ],
+      "dtype": "f32",
+      "numel": 768,
+      "nbytes": 3072
+    },
+    {
+      "group": "intermediates",
+      "name": "causal_conv1d_fn_call0_out",
+      "file": "intermediates/causal_conv1d_fn_call0_out.f32",
+      "shape": [
+        1,
+        128,
+        6
+      ],
+      "dtype": "f32",
+      "numel": 768,
+      "nbytes": 3072
+    },
+    {
+      "group": "intermediates",
+      "name": "delta_torch_chunk_gated_delta_rule_0__q",
+      "file": "intermediates/delta_torch_chunk_gated_delta_rule_0__q.f32",
+      "shape": [
+        1,
+        6,
+        4,
+        16
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "delta_torch_chunk_gated_delta_rule_0__k",
+      "file": "intermediates/delta_torch_chunk_gated_delta_rule_0__k.f32",
+      "shape": [
+        1,
+        6,
+        4,
+        16
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "delta_torch_chunk_gated_delta_rule_0__v",
+      "file": "intermediates/delta_torch_chunk_gated_delta_rule_0__v.f32",
+      "shape": [
+        1,
+        6,
+        4,
+        16
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "delta_torch_chunk_gated_delta_rule_0__g",
+      "file": "intermediates/delta_torch_chunk_gated_delta_rule_0__g.f32",
+      "shape": [
+        1,
+        6,
+        4
+      ],
+      "dtype": "f32",
+      "numel": 24,
+      "nbytes": 96
+    },
+    {
+      "group": "intermediates",
+      "name": "delta_torch_chunk_gated_delta_rule_0__beta",
+      "file": "intermediates/delta_torch_chunk_gated_delta_rule_0__beta.f32",
+      "shape": [
+        1,
+        6,
+        4
+      ],
+      "dtype": "f32",
+      "numel": 24,
+      "nbytes": 96
+    },
+    {
+      "group": "intermediates",
+      "name": "delta_torch_chunk_gated_delta_rule_0__out",
+      "file": "intermediates/delta_torch_chunk_gated_delta_rule_0__out.f32",
+      "shape": [
+        1,
+        6,
+        4,
+        16
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "delta_torch_chunk_gated_delta_rule_0__state",
+      "file": "intermediates/delta_torch_chunk_gated_delta_rule_0__state.f32",
+      "shape": [
+        1,
+        4,
+        16,
+        16
+      ],
+      "dtype": "f32",
+      "numel": 1024,
+      "nbytes": 4096
+    },
+    {
+      "group": "intermediates",
       "name": "model__layers__0__linear_attn__norm",
       "file": "intermediates/model__layers__0__linear_attn__norm.f32",
       "shape": [
@@ -2113,6 +2229,128 @@
     },
     {
       "group": "intermediates",
+      "name": "causal_conv1d_fn_call1_in",
+      "file": "intermediates/causal_conv1d_fn_call1_in.f32",
+      "shape": [
+        1,
+        128,
+        6
+      ],
+      "dtype": "f32",
+      "numel": 768,
+      "nbytes": 3072
+    },
+    {
+      "group": "intermediates",
+      "name": "causal_conv1d_fn_call1_out",
+      "file": "intermediates/causal_conv1d_fn_call1_out.f32",
+      "shape": [
+        1,
+        128,
+        6
+      ],
+      "dtype": "f32",
+      "numel": 768,
+      "nbytes": 3072
+    },
+    {
+      "group": "intermediates",
+      "name": "delta_torch_chunk_gated_delta_rule_1__q",
+      "file": "intermediates/delta_torch_chunk_gated_delta_rule_1__q.f32",
+      "shape": [
+        1,
+        6,
+        4,
+        16
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "delta_torch_chunk_gated_delta_rule_1__k",
+      "file": "intermediates/delta_torch_chunk_gated_delta_rule_1__k.f32",
+      "shape": [
+        1,
+        6,
+        4,
+        16
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "delta_torch_chunk_gated_delta_rule_1__v",
+      "file": "intermediates/delta_torch_chunk_gated_delta_rule_1__v.f32",
+      "shape": [
+        1,
+        6,
+        4,
+        16
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "delta_torch_chunk_gated_delta_rule_1__g",
+      "file": "intermediates/delta_torch_chunk_gated_delta_rule_1__g.f32",
+      "shape": [
+        1,
+        6,
+        4
+      ],
+      "dtype": "f32",
+      "numel": 24,
+      "nbytes": 96
+    },
+    {
+      "group": "intermediates",
+      "name": "delta_torch_chunk_gated_delta_rule_1__beta",
+      "file": "intermediates/delta_torch_chunk_gated_delta_rule_1__beta.f32",
+      "shape": [
+        1,
+        6,
+        4
+      ],
+      "dtype": "f32",
+      "numel": 24,
+      "nbytes": 96
+    },
+    {
+      "group": "intermediates",
+      "name": "delta_torch_chunk_gated_delta_rule_1__out",
+      "file": "intermediates/delta_torch_chunk_gated_delta_rule_1__out.f32",
+      "shape": [
+        1,
+        6,
+        4,
+        16
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "delta_torch_chunk_gated_delta_rule_1__state",
+      "file": "intermediates/delta_torch_chunk_gated_delta_rule_1__state.f32",
+      "shape": [
+        1,
+        4,
+        16,
+        16
+      ],
+      "dtype": "f32",
+      "numel": 1024,
+      "nbytes": 4096
+    },
+    {
+      "group": "intermediates",
       "name": "model__layers__1__linear_attn__norm",
       "file": "intermediates/model__layers__1__linear_attn__norm.f32",
       "shape": [
@@ -2278,6 +2516,128 @@
       "dtype": "f32",
       "numel": 24,
       "nbytes": 96
+    },
+    {
+      "group": "intermediates",
+      "name": "causal_conv1d_fn_call2_in",
+      "file": "intermediates/causal_conv1d_fn_call2_in.f32",
+      "shape": [
+        1,
+        128,
+        6
+      ],
+      "dtype": "f32",
+      "numel": 768,
+      "nbytes": 3072
+    },
+    {
+      "group": "intermediates",
+      "name": "causal_conv1d_fn_call2_out",
+      "file": "intermediates/causal_conv1d_fn_call2_out.f32",
+      "shape": [
+        1,
+        128,
+        6
+      ],
+      "dtype": "f32",
+      "numel": 768,
+      "nbytes": 3072
+    },
+    {
+      "group": "intermediates",
+      "name": "delta_torch_chunk_gated_delta_rule_2__q",
+      "file": "intermediates/delta_torch_chunk_gated_delta_rule_2__q.f32",
+      "shape": [
+        1,
+        6,
+        4,
+        16
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "delta_torch_chunk_gated_delta_rule_2__k",
+      "file": "intermediates/delta_torch_chunk_gated_delta_rule_2__k.f32",
+      "shape": [
+        1,
+        6,
+        4,
+        16
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "delta_torch_chunk_gated_delta_rule_2__v",
+      "file": "intermediates/delta_torch_chunk_gated_delta_rule_2__v.f32",
+      "shape": [
+        1,
+        6,
+        4,
+        16
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "delta_torch_chunk_gated_delta_rule_2__g",
+      "file": "intermediates/delta_torch_chunk_gated_delta_rule_2__g.f32",
+      "shape": [
+        1,
+        6,
+        4
+      ],
+      "dtype": "f32",
+      "numel": 24,
+      "nbytes": 96
+    },
+    {
+      "group": "intermediates",
+      "name": "delta_torch_chunk_gated_delta_rule_2__beta",
+      "file": "intermediates/delta_torch_chunk_gated_delta_rule_2__beta.f32",
+      "shape": [
+        1,
+        6,
+        4
+      ],
+      "dtype": "f32",
+      "numel": 24,
+      "nbytes": 96
+    },
+    {
+      "group": "intermediates",
+      "name": "delta_torch_chunk_gated_delta_rule_2__out",
+      "file": "intermediates/delta_torch_chunk_gated_delta_rule_2__out.f32",
+      "shape": [
+        1,
+        6,
+        4,
+        16
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "delta_torch_chunk_gated_delta_rule_2__state",
+      "file": "intermediates/delta_torch_chunk_gated_delta_rule_2__state.f32",
+      "shape": [
+        1,
+        4,
+        16,
+        16
+      ],
+      "dtype": "f32",
+      "numel": 1024,
+      "nbytes": 4096
     },
     {
       "group": "intermediates",
@@ -2620,6 +2980,128 @@
     },
     {
       "group": "intermediates",
+      "name": "causal_conv1d_fn_call3_in",
+      "file": "intermediates/causal_conv1d_fn_call3_in.f32",
+      "shape": [
+        1,
+        128,
+        6
+      ],
+      "dtype": "f32",
+      "numel": 768,
+      "nbytes": 3072
+    },
+    {
+      "group": "intermediates",
+      "name": "causal_conv1d_fn_call3_out",
+      "file": "intermediates/causal_conv1d_fn_call3_out.f32",
+      "shape": [
+        1,
+        128,
+        6
+      ],
+      "dtype": "f32",
+      "numel": 768,
+      "nbytes": 3072
+    },
+    {
+      "group": "intermediates",
+      "name": "delta_torch_chunk_gated_delta_rule_3__q",
+      "file": "intermediates/delta_torch_chunk_gated_delta_rule_3__q.f32",
+      "shape": [
+        1,
+        6,
+        4,
+        16
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "delta_torch_chunk_gated_delta_rule_3__k",
+      "file": "intermediates/delta_torch_chunk_gated_delta_rule_3__k.f32",
+      "shape": [
+        1,
+        6,
+        4,
+        16
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "delta_torch_chunk_gated_delta_rule_3__v",
+      "file": "intermediates/delta_torch_chunk_gated_delta_rule_3__v.f32",
+      "shape": [
+        1,
+        6,
+        4,
+        16
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "delta_torch_chunk_gated_delta_rule_3__g",
+      "file": "intermediates/delta_torch_chunk_gated_delta_rule_3__g.f32",
+      "shape": [
+        1,
+        6,
+        4
+      ],
+      "dtype": "f32",
+      "numel": 24,
+      "nbytes": 96
+    },
+    {
+      "group": "intermediates",
+      "name": "delta_torch_chunk_gated_delta_rule_3__beta",
+      "file": "intermediates/delta_torch_chunk_gated_delta_rule_3__beta.f32",
+      "shape": [
+        1,
+        6,
+        4
+      ],
+      "dtype": "f32",
+      "numel": 24,
+      "nbytes": 96
+    },
+    {
+      "group": "intermediates",
+      "name": "delta_torch_chunk_gated_delta_rule_3__out",
+      "file": "intermediates/delta_torch_chunk_gated_delta_rule_3__out.f32",
+      "shape": [
+        1,
+        6,
+        4,
+        16
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "delta_torch_chunk_gated_delta_rule_3__state",
+      "file": "intermediates/delta_torch_chunk_gated_delta_rule_3__state.f32",
+      "shape": [
+        1,
+        4,
+        16,
+        16
+      ],
+      "dtype": "f32",
+      "numel": 1024,
+      "nbytes": 4096
+    },
+    {
+      "group": "intermediates",
       "name": "model__layers__4__linear_attn__norm",
       "file": "intermediates/model__layers__4__linear_attn__norm.f32",
       "shape": [
@@ -2788,6 +3270,128 @@
     },
     {
       "group": "intermediates",
+      "name": "causal_conv1d_fn_call4_in",
+      "file": "intermediates/causal_conv1d_fn_call4_in.f32",
+      "shape": [
+        1,
+        128,
+        6
+      ],
+      "dtype": "f32",
+      "numel": 768,
+      "nbytes": 3072
+    },
+    {
+      "group": "intermediates",
+      "name": "causal_conv1d_fn_call4_out",
+      "file": "intermediates/causal_conv1d_fn_call4_out.f32",
+      "shape": [
+        1,
+        128,
+        6
+      ],
+      "dtype": "f32",
+      "numel": 768,
+      "nbytes": 3072
+    },
+    {
+      "group": "intermediates",
+      "name": "delta_torch_chunk_gated_delta_rule_4__q",
+      "file": "intermediates/delta_torch_chunk_gated_delta_rule_4__q.f32",
+      "shape": [
+        1,
+        6,
+        4,
+        16
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "delta_torch_chunk_gated_delta_rule_4__k",
+      "file": "intermediates/delta_torch_chunk_gated_delta_rule_4__k.f32",
+      "shape": [
+        1,
+        6,
+        4,
+        16
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "delta_torch_chunk_gated_delta_rule_4__v",
+      "file": "intermediates/delta_torch_chunk_gated_delta_rule_4__v.f32",
+      "shape": [
+        1,
+        6,
+        4,
+        16
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "delta_torch_chunk_gated_delta_rule_4__g",
+      "file": "intermediates/delta_torch_chunk_gated_delta_rule_4__g.f32",
+      "shape": [
+        1,
+        6,
+        4
+      ],
+      "dtype": "f32",
+      "numel": 24,
+      "nbytes": 96
+    },
+    {
+      "group": "intermediates",
+      "name": "delta_torch_chunk_gated_delta_rule_4__beta",
+      "file": "intermediates/delta_torch_chunk_gated_delta_rule_4__beta.f32",
+      "shape": [
+        1,
+        6,
+        4
+      ],
+      "dtype": "f32",
+      "numel": 24,
+      "nbytes": 96
+    },
+    {
+      "group": "intermediates",
+      "name": "delta_torch_chunk_gated_delta_rule_4__out",
+      "file": "intermediates/delta_torch_chunk_gated_delta_rule_4__out.f32",
+      "shape": [
+        1,
+        6,
+        4,
+        16
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "delta_torch_chunk_gated_delta_rule_4__state",
+      "file": "intermediates/delta_torch_chunk_gated_delta_rule_4__state.f32",
+      "shape": [
+        1,
+        4,
+        16,
+        16
+      ],
+      "dtype": "f32",
+      "numel": 1024,
+      "nbytes": 4096
+    },
+    {
+      "group": "intermediates",
       "name": "model__layers__5__linear_attn__norm",
       "file": "intermediates/model__layers__5__linear_attn__norm.f32",
       "shape": [
@@ -2953,6 +3557,128 @@
       "dtype": "f32",
       "numel": 24,
       "nbytes": 96
+    },
+    {
+      "group": "intermediates",
+      "name": "causal_conv1d_fn_call5_in",
+      "file": "intermediates/causal_conv1d_fn_call5_in.f32",
+      "shape": [
+        1,
+        128,
+        6
+      ],
+      "dtype": "f32",
+      "numel": 768,
+      "nbytes": 3072
+    },
+    {
+      "group": "intermediates",
+      "name": "causal_conv1d_fn_call5_out",
+      "file": "intermediates/causal_conv1d_fn_call5_out.f32",
+      "shape": [
+        1,
+        128,
+        6
+      ],
+      "dtype": "f32",
+      "numel": 768,
+      "nbytes": 3072
+    },
+    {
+      "group": "intermediates",
+      "name": "delta_torch_chunk_gated_delta_rule_5__q",
+      "file": "intermediates/delta_torch_chunk_gated_delta_rule_5__q.f32",
+      "shape": [
+        1,
+        6,
+        4,
+        16
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "delta_torch_chunk_gated_delta_rule_5__k",
+      "file": "intermediates/delta_torch_chunk_gated_delta_rule_5__k.f32",
+      "shape": [
+        1,
+        6,
+        4,
+        16
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "delta_torch_chunk_gated_delta_rule_5__v",
+      "file": "intermediates/delta_torch_chunk_gated_delta_rule_5__v.f32",
+      "shape": [
+        1,
+        6,
+        4,
+        16
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "delta_torch_chunk_gated_delta_rule_5__g",
+      "file": "intermediates/delta_torch_chunk_gated_delta_rule_5__g.f32",
+      "shape": [
+        1,
+        6,
+        4
+      ],
+      "dtype": "f32",
+      "numel": 24,
+      "nbytes": 96
+    },
+    {
+      "group": "intermediates",
+      "name": "delta_torch_chunk_gated_delta_rule_5__beta",
+      "file": "intermediates/delta_torch_chunk_gated_delta_rule_5__beta.f32",
+      "shape": [
+        1,
+        6,
+        4
+      ],
+      "dtype": "f32",
+      "numel": 24,
+      "nbytes": 96
+    },
+    {
+      "group": "intermediates",
+      "name": "delta_torch_chunk_gated_delta_rule_5__out",
+      "file": "intermediates/delta_torch_chunk_gated_delta_rule_5__out.f32",
+      "shape": [
+        1,
+        6,
+        4,
+        16
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "delta_torch_chunk_gated_delta_rule_5__state",
+      "file": "intermediates/delta_torch_chunk_gated_delta_rule_5__state.f32",
+      "shape": [
+        1,
+        4,
+        16,
+        16
+      ],
+      "dtype": "f32",
+      "numel": 1024,
+      "nbytes": 4096
     },
     {
       "group": "intermediates",

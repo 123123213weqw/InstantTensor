@@ -159,6 +159,91 @@ out            [B, T, H, V]
 state          [B, H, K, V]
 ```
 
+### Two functions are captured from the module namespace, not from hooks
+
+Two tensors an implementation needs cannot be captured with `register_forward_hook`,
+because the reference never invokes the module that holds the parameters:
+
+**`causal_conv1d_fn`.** `Qwen3_5GatedDeltaNet.forward` calls the **module-level**
+function and passes `self.conv1d.weight` / `self.conv1d.bias` as arguments:
+
+```python
+mixed_qkv = causal_conv1d_fn(
+    mixed_qkv, self.conv1d.weight.squeeze(1), self.conv1d.bias,
+    activation=self.activation, **kwargs)
+```
+
+`self.conv1d` is only a parameter container — it is never called — so a hook on
+the `nn.Conv1d` module is dead. `ModuleSpy` rebinds the module-level name
+instead, capturing both the input and the output, and records the call count so a
+missing capture is loud rather than silent.
+
+**The delta rule itself.** `forward` calls `torch_chunk_gated_delta_rule` /
+`torch_recurrent_gated_delta_rule`. The **`torch_` prefix matters**: the
+`@use_kernel_func_from_hub_with_fallback` decorator's first argument is the
+*kernel* name (`"chunk_gated_delta_rule"`, unprefixed), which is a different
+string and is not what `forward` resolves. These are neither instance nor class
+attributes, so the module namespace is again what has to be wrapped.
+
+Capturing those operands matters because they are the delta rule applied to
+**real** block inputs rather than the synthetic problem in `units/`. An
+implementation can verify the rule in place before writing the surrounding
+projections.
+
+#### One thing that capture revealed
+
+The captured `q`/`k` are `[1, 6, 4, 16]` and `g`/`beta` are `[1, 6, 4]` —
+**4 heads, not 2.** The GQA `repeat_interleave` that expands
+`num_k_heads=2 → num_v_heads=4` happens *before* the delta rule is called, so the
+rule always sees the expanded head count. An implementation that applies the
+expansion after the rule, or not at all, will not match these tensors.
+
+#### Capture is observation only
+
+Verified, not asserted: reloading the recorded weights and recomputing the last
+logits reproduces the bundle's `greedy_step00__logits` with
+
+```
+max abs diff = 0.000e+00
+bundle argmax = 68   recomputed argmax = 68
+```
+
+Bit-identical, so the spies do not perturb the reference.
+
+### What each block now provides
+
+`layers.0`, in manifest (capture) order:
+
+```
+input_layernorm                                 [1, 6, 64]
+linear_attn.in_proj_qkv                         [1, 6, 128]
+linear_attn.in_proj_z                           [1, 6, 64]
+linear_attn.in_proj_b                           [1, 6, 4]
+linear_attn.in_proj_a                           [1, 6, 4]
+causal_conv1d_fn_call0_in / _out                [1, 128, 6]   <- module-level spy
+delta_torch_chunk_gated_delta_rule_0__{q,k,v}   [1, 6, 4, 16]
+delta_torch_chunk_gated_delta_rule_0__{g,beta}  [1, 6, 4]
+delta_torch_chunk_gated_delta_rule_0__out       [1, 6, 4, 16]
+delta_torch_chunk_gated_delta_rule_0__state     [1, 4, 16, 16]
+linear_attn.norm                                [24, 16]      = (B*T) x H x head_v_dim
+linear_attn.out_proj                            [1, 6, 64]
+linear_attn                                     [1, 6, 64]
+post_attention_layernorm                        [1, 6, 64]
+mlp.{gate,up}_proj                              [1, 6, 128]
+mlp.down_proj                                   [1, 6, 64]
+mlp                                             [1, 6, 64]
+```
+
+The conv and delta-rule captures carry a **call index**, not a layer number.
+They are ordered by execution, which for a single forward pass is layer order, but
+the index is not tied to the layer: with a KV/SSM cache and single-token decode,
+`causal_conv1d_update` fires instead and the numbering shifts.
+
+Note the convolution is **not** in the chain position the code might suggest. It
+consumes `in_proj_qkv`, so it sits between that projection and the delta rule, but
+its capture appears after `in_proj_b`/`in_proj_a` because those projections are
+computed earlier in `forward` and their module hooks fire first.
+
 ## Three levels of comparison
 
 | Level | What is compared | Sensitivity | Use |

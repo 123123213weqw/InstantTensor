@@ -136,12 +136,81 @@ def dump_weights(bundle: Bundle, model: torch.nn.Module) -> int:
 
 # Only leaf-ish modules are hooked. Hooking every ancestor would duplicate the
 # same activation under several names and make the bundle hard to read.
+#
+# `conv1d` is deliberately absent: `Qwen3_5GatedDeltaNet.forward` calls the
+# module-level `causal_conv1d_fn` and only passes `self.conv1d.weight`/`.bias` as
+# arguments, so the `nn.Conv1d` module is never invoked and a hook on it is dead.
+# `ModuleSpy` captures that tensor instead.
 HOOK_SUFFIXES = (
     "input_layernorm", "post_attention_layernorm", "mlp", "linear_attn",
-    "self_attn", "conv1d", "norm", "in_proj_qkv", "in_proj_z", "in_proj_a",
+    "self_attn", "norm", "in_proj_qkv", "in_proj_z", "in_proj_a",
     "in_proj_b", "out_proj", "q_proj", "k_proj", "v_proj", "o_proj",
     "q_norm", "k_norm", "gate_proj", "up_proj", "down_proj", "embed_tokens",
 )
+
+
+class ModuleSpy:
+    """Record calls to a module-level function, without altering them.
+
+    `Qwen3_5GatedDeltaNet.forward` does **not** call `self.conv1d`. It calls the
+    module-level `causal_conv1d_fn`, passing `self.conv1d.weight` and
+    `self.conv1d.bias` as arguments:
+
+        mixed_qkv = causal_conv1d_fn(
+            mixed_qkv, self.conv1d.weight.squeeze(1), self.conv1d.bias,
+            activation=self.activation, **kwargs)
+
+    So a forward hook on the `nn.Conv1d` module never fires and the convolution's
+    output is invisible to hook-based capture. Replacing the module-level name is
+    what actually intercepts the call.
+
+    The kernel-hub decorators are no-ops unless `USE_HUB_KERNELS` is set, in which
+    case `_kernels_enable` swaps the callable inside `_kernels_use_kernelized_func`
+    rather than rebinding the module attribute; the caller reports which path was
+    taken so a missing capture is loud instead of silent.
+
+    Records both the **input** and the **output**, since the input is the
+    `in_proj_qkv` projection (already captured) and the output is what the
+    implementation actually has to reproduce.
+    """
+
+    def __init__(self, bundle: Bundle, module, func_name: str, layers: list[int] | None = None,
+                 expect_calls: bool = True):
+        self.bundle = bundle
+        self.module = module
+        self.func_name = func_name
+        self.orig = getattr(module, func_name)
+        self.layers = layers
+        self.expect_calls = expect_calls
+        self.calls = 0
+        self._index = 0
+
+    def __enter__(self):
+        bundle, layers = self.bundle, self.layers
+        orig = self.orig
+        state = self
+
+        def spy(hidden_states, weight, bias=None, activation=None, **kw):
+            out = orig(hidden_states, weight, bias=bias, activation=activation, **kw)
+            state.calls += 1
+            li = state._index
+            if layers is None or li in layers:
+                bundle.write("intermediates", f"{safe_name(state.func_name)}_call{li}_in", hidden_states)
+                bundle.write("intermediates", f"{safe_name(state.func_name)}_call{li}_out", out)
+            state._index += 1
+            return out
+
+        setattr(self.module, self.func_name, spy)
+        return self
+
+    def __exit__(self, *exc):
+        setattr(self.module, self.func_name, self.orig)
+        # If the call site bypassed our wrapper (kernel-hub path), `calls` stays
+        # zero: report it rather than shipping a bundle missing the tensor.
+        if self.calls == 0 and self.expect_calls:
+            print(f"  !! WARNING: {self.func_name} spy captured nothing; the call "
+                  f"site may be routed through the kernel hub")
+        return False
 
 
 class HookRecorder:
@@ -178,6 +247,77 @@ class HookRecorder:
         for h in self.handles:
             h.remove()
         self.handles.clear()
+
+
+# --------------------------------------------------------------------------- #
+# delta-rule operand capture (per block)
+# --------------------------------------------------------------------------- #
+
+class DeltaOperandSpy:
+    """Capture the exact `q/k/v/g/beta` a block feeds into the delta rule.
+
+    The unit golden in `units/` is a synthetic, isolated delta-rule problem. This
+    is the same operator with *real* inputs from a real block, which is what an
+    implementation needs in order to extend outward from the rule: it can verify
+    the rule in place before the surrounding projections are written.
+
+    `Qwen3_5GatedDeltaNet.forward` calls the **module-level**
+    `torch_chunk_gated_delta_rule` / `torch_recurrent_gated_delta_rule` by name.
+    The `torch_` prefix matters: the `@use_kernel_func_from_hub_with_fallback`
+    decorator's first argument is the *kernel* name (`"chunk_gated_delta_rule"`,
+    without the prefix), which is a different string and is not what `forward`
+    resolves. They are neither instance nor class attributes, so the module
+    namespace is what has to be wrapped.
+
+    The operands already have `l2norm` and the `1/sqrt(K)` scale applied by the
+    caller when `use_qk_l2norm_in_kernel=True`. Recording them post-preparation
+    means a caller-side implementation must not apply those twice.
+    """
+
+    def __init__(self, bundle: Bundle, module, captured: dict,
+                 names=("torch_chunk_gated_delta_rule", "torch_recurrent_gated_delta_rule")):
+        self.bundle = bundle
+        self.module = module
+        self.captured = captured
+        self.names = names
+        self.saved: list[tuple[str, object]] = []
+        self.calls = 0
+
+    def __enter__(self):
+        for name in self.names:
+            fn = getattr(self.module, name, None)
+            if fn is None:
+                continue
+            self.saved.append((name, fn))
+            setattr(self.module, name, self._wrap(name, fn))
+        return self
+
+    def _wrap(self, fname: str, fn):
+        bundle, cap, state = self.bundle, self.captured, self
+        counter = {"n": 0}
+
+        def spy(query, key, value, g=None, beta=None, **kw):
+            idx = counter["n"]
+            counter["n"] += 1
+            state.calls += 1
+            tag = f"delta_{fname}_{idx}"
+            for nm, t in (("q", query), ("k", key), ("v", value), ("g", g), ("beta", beta)):
+                if isinstance(t, torch.Tensor):
+                    bundle.write("intermediates", f"{safe_name(tag)}__{nm}", t)
+            res = fn(query, key, value, g=g, beta=beta, **kw)
+            out, st = res if isinstance(res, tuple) else (res, None)
+            bundle.write("intermediates", f"{safe_name(tag)}__out", out)
+            if isinstance(st, torch.Tensor):
+                bundle.write("intermediates", f"{safe_name(tag)}__state", st)
+            return res
+        return spy
+
+    def __exit__(self, *exc):
+        for name, fn in self.saved:
+            setattr(self.module, name, fn)
+        if self.calls == 0:
+            print("  !! WARNING: delta operand spy captured nothing")
+        return False
 
 
 # --------------------------------------------------------------------------- #
@@ -347,10 +487,23 @@ def main() -> int:
 
     rec = HookRecorder(bundle)
     hooked = rec.attach(model)
-    with torch.no_grad():
+    delta_cap: dict = {}
+    conv_calls = 0
+    conv_upd_calls = 0
+    with torch.no_grad(), \
+            ModuleSpy(bundle, M, "causal_conv1d_fn") as conv_spy, \
+            ModuleSpy(bundle, M, "causal_conv1d_update",
+                      expect_calls=False) as conv_upd_spy, \
+            DeltaOperandSpy(bundle, M, delta_cap) as delta_spy:
         out_main = model(input_ids=ids)
+        conv_calls = conv_spy.calls
+        conv_upd_calls = conv_upd_spy.calls
+        delta_calls = delta_spy.calls
     rec.detach()
     print(f"  hooked {len(hooked)} modules -> {rec.count} tensors")
+    print(f"  causal_conv1d_fn spy: {conv_calls} call(s); "
+          f"causal_conv1d_update spy: {conv_upd_calls} call(s)")
+    print(f"  delta rule spy: {delta_calls} call(s)")
 
     hidden = getattr(out_main, "last_hidden_state", None)
     if hidden is not None:

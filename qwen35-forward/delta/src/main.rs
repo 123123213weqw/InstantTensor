@@ -26,40 +26,52 @@ struct Case {
     shape: Shape,
 }
 
+/// Cases are named `delta_B{b}_H{h}_T{t}_K{k}_V{v}`. The prefix alone is not
+/// enough to identify one: per-layer captures are named
+/// `delta_torch_chunk_gated_delta_rule_<n>__<operand>`, which also starts with
+/// `delta_`. Require every dimension to parse, and to be present, so a capture
+/// cannot be mistaken for a case (it would otherwise be reported as a
+/// zero-shaped failure).
+fn parse_tag(tag: &str) -> Option<Shape> {
+    let mut b = None;
+    let mut h = None;
+    let mut t = None;
+    let mut k = None;
+    let mut v = None;
+    for part in tag.split('_') {
+        if part.len() < 2 {
+            continue;
+        }
+        let (key, val) = part.split_at(1);
+        let n: usize = match val.parse() {
+            Ok(n) => n,
+            Err(_) => return None,
+        };
+        match key {
+            "B" => b = Some(n),
+            "H" => h = Some(n),
+            "T" => t = Some(n),
+            "K" => k = Some(n),
+            "V" => v = Some(n),
+            _ => {}
+        }
+    }
+    Some(Shape { b: b?, t: t?, h: h?, k: k?, v: v? })
+}
+
 fn discover(b: &Bundle) -> Vec<Case> {
     let mut tags = BTreeSet::new();
     for name in b.names() {
-        if let Some(rest) = name.strip_prefix("delta_") {
-            if let Some((tag, _)) = rest.split_once("__") {
-                tags.insert(tag.to_string());
-            }
-        }
+        let Some(rest) = name.strip_prefix("delta_") else { continue };
+        let Some((tag, _)) = rest.split_once("__") else { continue };
+        tags.insert(tag.to_string());
     }
 
     let mut out = Vec::new();
     for tag in tags {
-        // Tag format: B{b}_H{h}_T{t}_K{k}_V{v}
-        let mut b_ = 0usize;
-        let mut h = 0usize;
-        let mut t = 0usize;
-        let mut k = 0usize;
-        let mut v = 0usize;
-        for part in tag.split('_') {
-            let (key, val) = part.split_at(1);
-            let n: usize = match val.parse() {
-                Ok(n) => n,
-                Err(_) => continue,
-            };
-            match key {
-                "B" => b_ = n,
-                "H" => h = n,
-                "T" => t = n,
-                "K" => k = n,
-                "V" => v = n,
-                _ => {}
-            }
+        if let Some(shape) = parse_tag(&tag) {
+            out.push(Case { tag, shape });
         }
-        out.push(Case { tag, shape: Shape { b: b_, t, h, k, v } });
     }
     out
 }
