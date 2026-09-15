@@ -38,8 +38,10 @@
 
 use deltarule::{forward_prepared, Shape};
 
+pub mod attention;
 pub mod layer;
 pub mod loader;
+pub mod model;
 
 /// Default RMSNorm epsilon. The reference reads it from `config.rms_norm_eps`,
 /// which is `1e-6` for every qwen35 configuration checked; `GdnConfig::eps`

@@ -44,6 +44,7 @@
 //! an implementation most plausibly goes wrong (wrong branch activated, or the two
 //! swapped), which is why the golden bundle records it as its own tensor.
 
+use crate::attention::{self, AttnConfig, AttnTrace, AttnWeights};
 use crate::{linear, rmsnorm_1plus, GdnConfig, GdnTrace, GdnWeights};
 
 /// MLP weights, in PyTorch's `[out, in]` storage order. No biases.
@@ -109,9 +110,25 @@ pub fn mlp_forward(
 pub enum Mixer<'a> {
     /// `Qwen3_5GatedDeltaNet` -- the gated delta net, used by 3 of every 4 layers.
     LinearAttention(&'a GdnConfig, &'a GdnWeights),
-    /// `Qwen3_5Attention`. Not implemented yet; `layer_forward` reports it rather
-    /// than silently skipping or guessing.
-    FullAttention,
+    /// `Qwen3_5Attention` -- full attention.
+    FullAttention(&'a AttnConfig, &'a AttnWeights),
+}
+
+/// The mixer's own trace, one variant per mixer kind.
+#[derive(Debug, Clone)]
+pub enum MixerTrace {
+    LinearAttention(GdnTrace),
+    FullAttention(AttnTrace),
+}
+
+impl MixerTrace {
+    /// The tensor that feeds the first residual.
+    pub fn output(&self) -> &[f32] {
+        match self {
+            MixerTrace::LinearAttention(t) => &t.out_proj,
+            MixerTrace::FullAttention(t) => &t.o_proj,
+        }
+    }
 }
 
 /// Weights of a full decoder layer. Both norms live here, not in the mixer.
@@ -129,8 +146,8 @@ pub struct LayerWeights {
 pub struct LayerTrace {
     /// Output of `input_layernorm` -- the mixer's input.
     pub input_layernorm: Vec<f32>,
-    /// The mixer's own trace. Only linear-attention layers have one today.
-    pub linear_attn: GdnTrace,
+    /// The mixer's own trace, whichever kind it is.
+    pub mixer: MixerTrace,
     /// `layer_input + mixer_out`
     pub after_first_residual: Vec<f32>,
     pub post_attention_layernorm: Vec<f32>,
@@ -151,6 +168,9 @@ pub fn layer_forward(
     b: usize,
     t: usize,
     eps: f32,
+    // `(cos, sin)`, each `[T, rotary_dim]`. Required by full-attention layers and
+    // ignored by linear ones, which have no positional encoding at all.
+    rope: Option<(&[f32], &[f32])>,
 ) -> Result<LayerTrace, String> {
     let rows = b * t;
     let hidden = lw.input_layernorm.len();
@@ -159,13 +179,17 @@ pub fn layer_forward(
     // The layer's input norm, applied once, before the mixer.
     let ln = rmsnorm_1plus(&lw.input_layernorm, hidden_in, rows, hidden, eps);
 
-    match mixer {
-        Mixer::LinearAttention(cfg, gw) => {
-            let mt = crate::forward(cfg, gw, &ln, b, t);
-            Ok(layer_forward_from_mixer(lw, hidden_in, &ln, mt, rows, eps))
+    let trace = match mixer {
+        Mixer::LinearAttention(cfg, gw) => MixerTrace::LinearAttention(crate::forward(cfg, gw, &ln, b, t)),
+        Mixer::FullAttention(cfg, aw) => {
+            let Some((cos, sin)) = rope else {
+                return Err("full_attention layer needs RoPE tables".to_string());
+            };
+            MixerTrace::FullAttention(attention::forward(cfg, aw, &ln, b, t, cos, sin))
         }
-        Mixer::FullAttention => Err("full_attention mixer is not implemented yet".to_string()),
-    }
+    };
+
+    Ok(layer_forward_from_mixer(lw, hidden_in, &ln, trace, rows, eps))
 }
 
 /// Finish a layer given the mixer has already run.
@@ -177,14 +201,14 @@ pub fn layer_forward_from_mixer(
     lw: &LayerWeights,
     layer_input: &[f32],
     input_layernorm_out: &[f32],
-    linear_attn: GdnTrace,
+    mixer: MixerTrace,
     rows: usize,
     eps: f32,
 ) -> LayerTrace {
     let hidden = lw.input_layernorm.len();
-    // The mixer's output is `linear_attn.out_proj`; passing it separately invited
+    // The mixer output comes from the trace itself; passing it separately invited
     // the two to disagree.
-    let mixer_out = &linear_attn.out_proj;
+    let mixer_out = mixer.output();
     assert_eq!(layer_input.len(), rows * hidden, "layer input size");
     assert_eq!(mixer_out.len(), rows * hidden, "mixer output size");
     assert_eq!(input_layernorm_out.len(), rows * hidden, "layernorm output size");
@@ -205,7 +229,7 @@ pub fn layer_forward_from_mixer(
 
     LayerTrace {
         input_layernorm: input_layernorm_out.to_vec(),
-        linear_attn,
+        mixer,
         after_first_residual: after_first,
         post_attention_layernorm: post_ln,
         mlp,
@@ -287,7 +311,7 @@ mod tests {
             &lw,
             &layer_in,
             &ln_out,
-            stub_mixer_trace(mixer_out),
+            MixerTrace::LinearAttention(stub_mixer_trace(mixer_out)),
             1,
             1e-6,
         );
@@ -298,8 +322,10 @@ mod tests {
         assert_ne!(t.out, vec![1.0, 2.0]);
     }
 
+    /// A full-attention layer without RoPE tables must report it rather than
+    /// silently running with an unrotated position encoding.
     #[test]
-    fn full_attention_layer_reports_rather_than_guesses() {
+    fn full_attention_without_rope_reports_rather_than_guesses() {
         let lw = LayerWeights {
             input_layernorm: vec![0.0],
             post_attention_layernorm: vec![0.0],
@@ -309,7 +335,25 @@ mod tests {
                 down_proj: vec![0.0],
             },
         };
-        let err = layer_forward(Mixer::FullAttention, &lw, &[1.0], 1, 1, 1e-6).unwrap_err();
-        assert!(err.contains("full_attention"), "{err}");
+        let ac = AttnConfig {
+            hidden: 1,
+            num_heads: 1,
+            num_kv_heads: 1,
+            head_dim: 1,
+            rotary_dim: 1,
+            rope_theta: 1e4,
+            eps: 1e-6,
+        };
+        let aw = AttnWeights {
+            q_proj: vec![0.0, 0.0],
+            k_proj: vec![0.0],
+            v_proj: vec![0.0],
+            o_proj: vec![0.0],
+            q_norm: vec![0.0],
+            k_norm: vec![0.0],
+        };
+        let err = layer_forward(Mixer::FullAttention(&ac, &aw), &lw, &[1.0], 1, 1, 1e-6, None)
+            .unwrap_err();
+        assert!(err.contains("RoPE"), "{err}");
     }
 }

@@ -121,6 +121,42 @@ def safe_name(s: str) -> str:
 # weights
 # --------------------------------------------------------------------------- #
 
+def randomize_norms(model: torch.nn.Module, seed: int) -> int:
+    """Give every RMSNorm a non-trivial scale.
+
+    `Qwen3_5RMSNorm.__init__` is `nn.Parameter(torch.zeros(dim))` and its forward is
+    `output * (1.0 + weight)`. With the reference's own initialisation that collapses
+    to `1.0` -- a pure normalisation. Two things follow, both bad for a test bundle:
+
+      * a *scale* error in the `(1 + w)` convention is invisible. (The convention
+        itself is still distinguishable: `x * w` would zero every activation.)
+      * normalising twice is a no-op, because a normalised vector already has unit
+        RMS. A model shell that applied the final norm twice would pass every check.
+
+    Filling `w` with `N(0, 0.5)` keeps the operator and every code path identical
+    while making both observable. `Qwen3_5RMSNormGated` computes `w * x` and starts
+    at ones, so its weights are centred on 1 instead; the plain RMSNorm starts at
+    zero, so its weights are centred on 0.
+    """
+    g = torch.Generator().manual_seed(seed + 977)
+    n = 0
+    for _name, mod in model.named_modules():
+        cls = type(mod).__name__
+        w = getattr(mod, "weight", None)
+        if not isinstance(w, torch.nn.Parameter) or w.ndim != 1:
+            continue
+        if cls.endswith("RMSNormGated"):
+            new = 1.0 + torch.randn(w.shape, generator=g) * 0.5
+        elif cls.endswith("RMSNorm"):
+            new = torch.randn(w.shape, generator=g) * 0.5
+        else:
+            continue
+        with torch.no_grad():
+            w.copy_(new.to(w.dtype))
+        n += 1
+    return n
+
+
 def dump_weights(bundle: Bundle, model: torch.nn.Module) -> int:
     sd = model.state_dict()
     for k, v in sorted(sd.items()):
@@ -150,6 +186,11 @@ HOOK_SUFFIXES = (
     "self_attn", "norm", "in_proj_qkv", "in_proj_z", "in_proj_a",
     "in_proj_b", "out_proj", "q_proj", "k_proj", "v_proj", "o_proj",
     "q_norm", "k_norm", "gate_proj", "up_proj", "down_proj", "embed_tokens",
+    # The rotary embedding returns `(cos, sin)`, which the recorder splits into
+    # `rotary_emb__out0` / `__out1`. Capturing them isolates the rotation from the
+    # attention arithmetic: a mismatch in the attention output can be attributed to
+    # the rotation or to the softmax, rather than to "attention" as a whole.
+    "rotary_emb", "lm_head", "norm",
 )
 
 
@@ -257,6 +298,62 @@ class HookRecorder:
         for h in self.handles:
             h.remove()
         self.handles.clear()
+
+
+# --------------------------------------------------------------------------- #
+# module-input capture
+# --------------------------------------------------------------------------- #
+
+class InputSpy:
+    """Record the **input** of selected modules.
+
+    `Qwen3_5Attention.forward` ends with
+
+        attn_output = attn_output * torch.sigmoid(gate)
+        attn_output = self.o_proj(attn_output)
+        return attn_output, attn_weights
+
+    so the tensor the module returns is *post*-`o_proj`. The post-gate,
+    pre-`o_proj` tensor is never bound to a name, no module produces it, and a
+    forward hook cannot see it -- but it is exactly where the output gate is
+    applied, which is the single most falsifiable line in the whole attention
+    block (the config says `swish`, the code says `sigmoid`).
+
+    A forward hook receives `(module, inputs, output)`, so recording `inputs[0]` of
+    `o_proj` captures it without touching the computation.
+    """
+
+    def __init__(self, bundle: Bundle, model, module_suffix: str, out_suffix: str = "__in"):
+        self.bundle = bundle
+        self.model = model
+        self.module_suffix = module_suffix
+        self.out_suffix = out_suffix
+        self.handles = []
+        self.count = 0
+
+    def __enter__(self):
+        for name, mod in self.model.named_modules():
+            if not name.endswith(self.module_suffix):
+                continue
+            self.handles.append(mod.register_forward_hook(self._mk(name)))
+        return self
+
+    def _mk(self, name: str):
+        label = safe_name(name) + self.out_suffix
+        bundle = self.bundle
+        state = self
+
+        def fn(_m, inputs, _out):
+            if inputs and isinstance(inputs[0], torch.Tensor):
+                bundle.write("intermediates", label, inputs[0])
+                state.count += 1
+        return fn
+
+    def __exit__(self, *exc):
+        for h in self.handles:
+            h.remove()
+        self.handles.clear()
+        return False
 
 
 # --------------------------------------------------------------------------- #
@@ -511,6 +608,9 @@ def main() -> int:
     ap.add_argument("--topk", type=int, default=5)
     ap.add_argument("--seq", type=int, default=6, help="prompt length")
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--randomize-norms", action="store_true",
+                    help="fill plain RMSNorm weights with N(0, 0.5) so that a scale "
+                         "error or a doubled normalisation is observable")
     ap.add_argument("--ssm-gain", type=float, default=1.0,
                     help="scale linear_attn.out_proj so the recurrent path is "
                          "observable in the token trace (see note in main())")
@@ -547,6 +647,10 @@ def main() -> int:
                     n_scaled += 1
         gain_lines.append(f"  ssm_gain={args.ssm_gain} applied to {n_scaled} out_proj weights")
 
+    if args.randomize_norms:
+        n_norm = randomize_norms(model, args.seed)
+        print(f"  randomize_norms: {n_norm} RMSNorm weight(s) reseeded "
+              f"(plain N(0,0.5), gated 1+N(0,0.5))")
     dump_weights(bundle, model)
 
     print("  delta rule unit golden:")
@@ -567,18 +671,21 @@ def main() -> int:
             ModuleSpy(bundle, M, "causal_conv1d_update",
                       expect_calls=False) as conv_upd_spy, \
             DeltaOperandSpy(bundle, M, delta_cap) as delta_spy, \
-            SwigluSpy(bundle, model, act_fn) as swiglu_spy:
+            SwigluSpy(bundle, model, act_fn) as swiglu_spy, \
+            InputSpy(bundle, model, "self_attn.o_proj") as attn_gate_spy:
         out_main = model(input_ids=ids)
         conv_calls = conv_spy.calls
         conv_upd_calls = conv_upd_spy.calls
         delta_calls = delta_spy.calls
         swiglu_calls = swiglu_spy.count
+        attn_gate_calls = attn_gate_spy.count
     rec.detach()
     print(f"  hooked {len(hooked)} modules -> {rec.count} tensors")
     print(f"  causal_conv1d_fn spy: {conv_calls} call(s); "
           f"causal_conv1d_update spy: {conv_upd_calls} call(s)")
     print(f"  delta rule spy: {delta_calls} call(s)")
     print(f"  swiglu product spy: {swiglu_calls} call(s)")
+    print(f"  attn o_proj-input spy: {attn_gate_calls} call(s)")
 
     hidden = getattr(out_main, "last_hidden_state", None)
     if hidden is not None:
@@ -599,6 +706,7 @@ def main() -> int:
             "seed": args.seed,
             "params": n_params,
             "ssm_gain": args.ssm_gain,
+            "randomize_norms": bool(args.randomize_norms),
         },
         "config": json.loads(json.dumps(cfg.to_dict(), default=str)),
         "prompt_ids": [int(x) for x in ids[0].tolist()],

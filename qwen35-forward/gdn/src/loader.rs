@@ -18,7 +18,9 @@
 //! coincidence, which is exactly the kind of bug that survives a single-layer
 //! test. [`LayerCapture`] is the one place the mapping lives.
 
+use crate::attention::{AttnConfig, AttnWeights};
 use crate::layer::{LayerWeights, MlpWeights};
+use crate::model::{LayerKind, LayerWeightsAll, ModelWeights};
 use crate::{GdnConfig, GdnWeights};
 use goldenbundle::Bundle;
 
@@ -34,8 +36,11 @@ pub struct ModelInfo {
     pub layer_types: Vec<String>,
     pub eps: f32,
     pub ssm_gain: f64,
+    pub vocab: usize,
     /// Config for the linear-attention mixer, shared by every such layer.
     pub gdn: GdnConfig,
+    /// Config for the full-attention mixer, shared by every such layer.
+    pub attn: AttnConfig,
 }
 
 impl ModelInfo {
@@ -74,25 +79,25 @@ impl ModelInfo {
         }
     }
 
-    /// Layers whose mixer is implemented, in order.
-    pub fn verifiable_layers(&self) -> Vec<usize> {
-        (0..self.num_layers).filter(|&l| self.is_linear(l)).collect()
+    /// A chain from layer 0 to the last layer.
+    ///
+    /// Both mixer kinds are implemented, so the stack is one unbroken run. An
+    /// earlier version split this at every `full_attention` layer, because those had
+    /// no implementation and their output could not be computed; that is no longer
+    /// true and the splitting is gone with it.
+    pub fn chain_layers(&self) -> Vec<usize> {
+        (0..self.num_layers).collect()
     }
 
-    /// Maximal runs of consecutive verifiable layers.
-    ///
-    /// A full-attention layer breaks a run: its output cannot be computed, so the
-    /// layer after it has no input that this implementation can produce. Runs let
-    /// the chained check cover 4-5-6 even though layer 3 is missing.
-    pub fn runs(&self) -> Vec<Vec<usize>> {
-        let mut out: Vec<Vec<usize>> = Vec::new();
-        for l in self.verifiable_layers() {
-            match out.last_mut() {
-                Some(run) if run.last() == Some(&(l - 1)) => run.push(l),
-                _ => out.push(vec![l]),
-            }
+    /// Collapse to the config the forward pass takes.
+    pub fn model_config(&self) -> crate::model::ModelConfig {
+        crate::model::ModelConfig {
+            vocab: self.vocab,
+            hidden: self.hidden,
+            eps: self.eps,
+            gdn: self.gdn,
+            attn: self.attn,
         }
-        out
     }
 
     pub fn counts(&self) -> (usize, usize) {
@@ -236,6 +241,69 @@ pub fn load_model(b: &Bundle) -> Result<ModelInfo, String> {
         eps,
     };
 
+    // ---- full attention --------------------------------------------------
+    let vocab = cfg
+        .get("vocab_size")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as usize)
+        .or_else(|| {
+            b.entry("model__embed_tokens__weight")
+                .and_then(|e| e.shape.first().copied())
+        })
+        .ok_or("cannot determine vocab_size")?;
+
+    let num_attention_heads = cfg
+        .get("num_attention_heads")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as usize)
+        .ok_or("config has no num_attention_heads")?;
+    let num_key_value_heads = cfg
+        .get("num_key_value_heads")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as usize)
+        .ok_or("config has no num_key_value_heads")?;
+    let head_dim = cfg
+        .get("head_dim")
+        .and_then(|v| v.as_u64())
+        .map(|v| v as usize)
+        .ok_or("config has no head_dim")?;
+    let rope_params = cfg.get("rope_parameters");
+    let rope_theta = rope_params
+        .and_then(|r| r.get("rope_theta"))
+        .and_then(|v| v.as_f64())
+        .unwrap_or(10000.0) as f32;
+    let partial = rope_params
+        .and_then(|r| r.get("partial_rotary_factor"))
+        .and_then(|v| v.as_f64())
+        .unwrap_or(1.0) as f32;
+
+    // `rotary_dim` is measured from the captured cos/sin rather than derived from
+    // the config, so a config that disagrees with the run cannot silently pass.
+    let rotary_dim = b
+        .entry("model__rotary_emb__out0")
+        .and_then(|e| e.shape.last().copied())
+        .unwrap_or((head_dim as f32 * partial) as usize);
+    if rotary_dim == 0 || rotary_dim > head_dim || !rotary_dim.is_multiple_of(2) {
+        return Err(format!(
+            "rotary_dim {rotary_dim} is not a positive even number <= head_dim {head_dim}"
+        ));
+    }
+    if num_attention_heads % num_key_value_heads != 0 {
+        return Err(format!(
+            "num_attention_heads {num_attention_heads} is not a multiple of num_key_value_heads {num_key_value_heads}"
+        ));
+    }
+
+    let attn = AttnConfig {
+        hidden,
+        num_heads: num_attention_heads,
+        num_kv_heads: num_key_value_heads,
+        head_dim,
+        rotary_dim,
+        rope_theta,
+        eps,
+    };
+
     Ok(ModelInfo {
         b: b_sz,
         t: t_sz,
@@ -245,7 +313,9 @@ pub fn load_model(b: &Bundle) -> Result<ModelInfo, String> {
         layer_types,
         eps,
         ssm_gain: b.manifest.source.ssm_gain,
+        vocab,
         gdn,
+        attn,
     })
 }
 
@@ -385,6 +455,59 @@ impl LayerCapture {
     pub fn w_down_proj(&self) -> String {
         format!("{}mlp__down_proj__weight", self.prefix)
     }
+
+    fn sa(&self, part: &str) -> String {
+        format!("{}self_attn__{part}", self.prefix)
+    }
+    pub fn w_q_proj(&self) -> String {
+        self.sa("q_proj__weight")
+    }
+    pub fn w_k_proj(&self) -> String {
+        self.sa("k_proj__weight")
+    }
+    pub fn w_v_proj(&self) -> String {
+        self.sa("v_proj__weight")
+    }
+    pub fn w_o_proj(&self) -> String {
+        self.sa("o_proj__weight")
+    }
+    pub fn w_q_norm(&self) -> String {
+        self.sa("q_norm__weight")
+    }
+    pub fn w_k_norm(&self) -> String {
+        self.sa("k_norm__weight")
+    }
+    /// `Qwen3_5Attention` returns `(attn_output, attn_weights)` where `attn_output`
+    /// has already been through `o_proj`, so this is the module's *output*, not the
+    /// post-gate tensor.
+    pub fn self_attn_out0(&self) -> String {
+        self.sa("out0")
+    }
+    /// The post-gate, pre-`o_proj` tensor, recovered from `o_proj`'s input.
+    pub fn o_proj_in(&self) -> String {
+        self.sa("o_proj__in")
+    }
+    pub fn q_proj(&self) -> String {
+        self.sa("q_proj")
+    }
+    pub fn q_norm(&self) -> String {
+        self.sa("q_norm")
+    }
+    pub fn k_proj(&self) -> String {
+        self.sa("k_proj")
+    }
+    pub fn k_norm(&self) -> String {
+        self.sa("k_norm")
+    }
+    pub fn v_proj(&self) -> String {
+        self.sa("v_proj")
+    }
+    pub fn o_proj(&self) -> String {
+        self.sa("o_proj")
+    }
+    pub fn self_attn(&self) -> String {
+        format!("{}self_attn", self.prefix)
+    }
 }
 
 /// Read a tensor and require an exact length.
@@ -435,6 +558,70 @@ pub fn load_layer_weights(b: &Bundle, m: &ModelInfo, layer: usize) -> Result<Lay
     })
 }
 
+/// The layer kind, read from the same source as `ModelInfo::layer_types`.
+pub fn layer_kind(m: &ModelInfo, layer: usize) -> LayerKind {
+    if m.is_linear(layer) {
+        LayerKind::LinearAttention
+    } else {
+        LayerKind::FullAttention
+    }
+}
+
+/// Load the full-attention mixer weights for one layer.
+pub fn load_attn_weights(b: &Bundle, m: &ModelInfo, layer: usize) -> Result<AttnWeights, String> {
+    let c = LayerCapture::new(layer, m.ssm_ordinal(layer));
+    let a = &m.attn;
+    Ok(AttnWeights {
+        q_proj: read_exact(b, &c.w_q_proj(), a.q_out_dim() * a.hidden)?,
+        k_proj: read_exact(b, &c.w_k_proj(), a.kv_out_dim() * a.hidden)?,
+        v_proj: read_exact(b, &c.w_v_proj(), a.kv_out_dim() * a.hidden)?,
+        o_proj: read_exact(b, &c.w_o_proj(), a.hidden * a.num_heads * a.head_dim)?,
+        q_norm: read_exact(b, &c.w_q_norm(), a.head_dim)?,
+        k_norm: read_exact(b, &c.w_k_norm(), a.head_dim)?,
+    })
+}
+
+/// Load every layer, whichever kind it is.
+pub fn load_all_layers(b: &Bundle, m: &ModelInfo) -> Result<Vec<LayerWeightsAll>, String> {
+    let mut out = Vec::with_capacity(m.num_layers);
+    for layer in 0..m.num_layers {
+        let kind = layer_kind(m, layer);
+        let lw = load_layer_weights(b, m, layer)?;
+        let (gdn, attn) = match kind {
+            LayerKind::LinearAttention => (Some(load_gdn_weights(b, m, layer)?), None),
+            LayerKind::FullAttention => (None, Some(load_attn_weights(b, m, layer)?)),
+        };
+        out.push(LayerWeightsAll { kind, layer: lw, gdn, attn });
+    }
+    Ok(out)
+}
+
+/// Model-level weights: the embedding table, the final norm, and the head.
+pub fn load_model_weights(b: &Bundle, m: &ModelInfo) -> Result<ModelWeights, String> {
+    Ok(ModelWeights {
+        embed_tokens: read_exact(
+            b,
+            "model__embed_tokens__weight",
+            m.vocab * m.hidden,
+        )?,
+        final_norm: read_exact(b, "model__norm__weight", m.hidden)?,
+        lm_head: read_exact(b, "lm_head__weight", m.vocab * m.hidden)?,
+        // Layers are attached by the caller, which already needs the list.
+        layers: Vec::new(),
+    })
+}
+
+/// The captured RoPE tables, `(cos, sin)`, each flattened `[T, rotary_dim]`.
+///
+/// Read rather than rebuilt so the check can compare against the reference's own
+/// tables; `attention::build_rope` is separately verified against these.
+pub fn load_rope(b: &Bundle, m: &ModelInfo) -> Result<(Vec<f32>, Vec<f32>), String> {
+    let want = m.b * m.t * m.attn.rotary_dim;
+    let cos = read_exact(b, "model__rotary_emb__out0", want)?;
+    let sin = read_exact(b, "model__rotary_emb__out1", want)?;
+    Ok((cos, sin))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -449,6 +636,16 @@ mod tests {
             layer_types: types.iter().map(|s| s.to_string()).collect(),
             eps: 1e-6,
             ssm_gain: 1.0,
+            vocab: 16,
+            attn: AttnConfig {
+                hidden: 4,
+                num_heads: 1,
+                num_kv_heads: 1,
+                head_dim: 4,
+                rotary_dim: 2,
+                rope_theta: 10000.0,
+                eps: 1e-6,
+            },
             gdn: GdnConfig {
                 hidden: 4,
                 num_k_heads: 1,
@@ -507,7 +704,7 @@ mod tests {
     }
 
     #[test]
-    fn runs_split_at_full_attention_layers() {
+    fn chain_covers_every_layer_once_both_mixers_exist() {
         let m = info(&[
             "linear_attention",
             "linear_attention",
@@ -518,8 +715,7 @@ mod tests {
             "linear_attention",
             "full_attention",
         ]);
-        assert_eq!(m.runs(), vec![vec![0, 1, 2], vec![4, 5, 6]]);
-        assert_eq!(m.verifiable_layers(), vec![0, 1, 2, 4, 5, 6]);
+        assert_eq!(m.chain_layers(), vec![0, 1, 2, 3, 4, 5, 6, 7]);
         assert_eq!(m.counts(), (6, 2));
     }
 

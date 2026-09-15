@@ -59,7 +59,8 @@ def read_tensor(bundle: Path, entry: dict) -> np.ndarray:
 # 1) reproducibility
 # --------------------------------------------------------------------------- #
 
-def check_reproducible(bundle: Path, gen: Path, seed: int, ssm_gain: float = 1.0) -> tuple[bool, str]:
+def check_reproducible(bundle: Path, gen: Path, seed: int, ssm_gain: float = 1.0,
+                       randomize_norms: bool = False) -> tuple[bool, str]:
     """Regenerate into a second directory and compare every file.
 
     `ssm_gain` has to be passed through: it scales `linear_attn.out_proj` at
@@ -72,6 +73,8 @@ def check_reproducible(bundle: Path, gen: Path, seed: int, ssm_gain: float = 1.0
         cmd = [sys.executable, str(gen), "--out", str(second), "--seed", str(seed)]
         if ssm_gain != 1.0:
             cmd += ["--ssm-gain", repr(ssm_gain)]
+        if randomize_norms:
+            cmd += ["--randomize-norms"]
         r = subprocess.run(cmd, capture_output=True, text=True)
         if r.returncode != 0:
             return False, f"regeneration failed: {r.stderr.strip()[-400:]}"
@@ -327,7 +330,8 @@ def main() -> int:
     gen = Path(args.gen) if args.gen else Path(__file__).with_name("gen_golden.py")
     if gen.exists():
         gain = float(man["source"].get("ssm_gain", 1.0))
-        good, msg = check_reproducible(bundle, gen, man["source"]["seed"], gain)
+        rn = bool(man["source"].get("randomize_norms", False))
+        good, msg = check_reproducible(bundle, gen, man["source"]["seed"], gain, rn)
         print(f"   [{'PASS' if good else 'FAIL'}] {msg}")
         ok &= good
     else:

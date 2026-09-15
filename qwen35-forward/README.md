@@ -34,11 +34,13 @@ bundle/              Rust reader + comparator
   bundlecmp summary|show|compare|selftest
 delta/               the gated delta rule, checked against the unit golden
   deltacheck <bundle>
-gdn/                 the decoder stack: gated delta net + SwiGLU MLP + residuals
-  lib.rs             the mixer (conv, GQA, delta rule, gated norm, out_proj)
-  layer.rs           one layer: input norm, mixer, MLP, both residuals
+gdn/                 the whole model
+  lib.rs             the gated delta net mixer (conv, GQA, rule, gated norm)
+  attention.rs       the full-attention mixer (per-head q/gate split, rope, GQA)
+  layer.rs           one layer: input norm, either mixer, MLP, both residuals
+  model.rs           embedding, the layer stack, final norm, head, greedy decode
   loader.rs          bundle -> weights, and the layer -> capture-index mapping
-  gdncheck <bundle> [--layer N] [--chain] [--verbose]
+  gdncheck <bundle> [--layer N] [--chain] [--model] [--verbose]
 golden_tiny/         committed bundle (gain=1.0, for per-tensor comparison)
 golden_sensitive/    committed bundle (gain=300, for token-trace comparison)
 ```
@@ -417,6 +419,149 @@ than guessed at. They need `Qwen3_5Attention`, which is a separate code path:
 `q_proj` emits **2x** `num_attention_heads * head_dim` with the second half used as
 a sigmoid gate, plus `q_norm`/`k_norm` and a partial rotary embedding. Until that
 exists, a chain cannot cross layer 3, and `--chain` starts a new run after it.
+
+## Step five: the whole model, and the tokens it generates
+
+`gdncheck --model` runs embedding, all eight layers, the final norm and the head, then
+decodes greedily and compares the generated tokens against the reference's.
+
+```bash
+./target/release/gdncheck golden_tiny --model     # logits and the token trace
+./target/release/gdncheck golden_tiny --layer 3   # one attention layer, all checks
+./target/release/gdncheck golden_tiny --chain     # 0 -> 7, all eight layers
+```
+
+```
+   mode: whole model (embedding -> all layers -> final norm -> head)
+    1. embedding                                        abs=0.000e0     rel=0.000e0     ok
+    2. layer 0 output                                   abs=5.588e-9    rel=9.204e-8    ok
+    ...
+    9. layer 7 output                                   abs=2.794e-8    rel=3.059e-7    ok
+   10. final norm                                       abs=9.537e-7    rel=2.766e-7    ok
+   11. logits (all positions)                           abs=2.086e-7    rel=3.853e-7    ok
+
+   greedy trace (16 steps)
+     step  0  argmax want=68   got=68   ok   logits abs=1.565e-7  top5 same
+     ...
+     step 15  argmax want=75   got=75   ok   logits abs=1.639e-7  top5 same
+
+     tokens: 16/16 match   worst logit abs=2.980e-7
+     full token sequence: identical
+```
+
+All 16 generated tokens match, the top-5 ranking matches at every step, and the full
+21-token sequence is identical. Both bundles pass, including the `ssm_gain=300` one
+that amplifies the recurrent path.
+
+### Full attention
+
+`Qwen3_5Attention` is a separate code path and, per the reference, a different one in
+three places that are each silent when wrong:
+
+* **The query/gate split is per head.** `q_proj` emits `num_heads * head_dim * 2`
+  values, which are *viewed* as `[B, T, num_heads, head_dim*2]` and chunked on the
+  last axis. Head `h` takes columns `h*2D .. h*2D+D` as its query and
+  `h*2D+D .. (h+1)*2D` as its gate. Splitting the flat output in half -- "the first
+  half is the query" -- produces plausible output and is wrong. Injecting that
+  version fails at check 3 (`q_norm`) and drops the token trace to 1/16.
+* **The gate is `sigmoid`, not the `swish` the config claims.** The config key is
+  `output_gate_type`; the code is `attn_output * torch.sigmoid(gate)`. Injecting
+  `swish` is not caught by any shape, only by the values: 1/16 tokens.
+* **Only part of the head rotates.** `partial_rotary_factor` is 0.25, so with
+  `head_dim = 32` only the first 8 dimensions rotate. `rotate_half` splits those 8
+  into 4+4 and returns `cat(-x2, x1)` -- the half convention, not the interleaved one.
+
+### Text-only MRoPE is plain RoPE
+
+`Qwen3_5TextRotaryEmbedding` builds three interleaved frequency rows (temporal,
+height, width) and overwrites row 0 from rows 1 and 2 at interleaved indices. For
+text-only input all three rows come from the same `arange`, so the interleave is a
+no-op. Checked, not assumed: `max |cos - plain| = 0.000e+00`, exactly zero. The
+builder is also compared against the reference's own captured tables at run time
+(`cos abs=5.960e-8  sin abs=2.980e-8`).
+
+### The gate needed a tensor that does not exist
+
+`Qwen3_5Attention.forward` ends with
+
+```python
+attn_output = attn_output * torch.sigmoid(gate)
+attn_output = self.o_proj(attn_output)
+return attn_output, attn_weights
+```
+
+so the tensor the module *returns* is post-`o_proj`. The post-gate, pre-`o_proj`
+tensor is never bound to a name and no module produces it, so a forward hook cannot
+see it -- yet it is where the most falsifiable line in the block happens. A forward
+hook receives `(module, inputs, output)`, so `InputSpy` records `o_proj`'s **input**
+and captures it without touching the computation.
+
+This was found by getting it wrong first: the check initially compared against the
+recorder's `out0`, which is the module output, and failed at check 7 while checks 8
+and 9 (both post-`o_proj`) passed -- which is what pointed at the mislabelling.
+
+### A rope bug that a single-head test cannot see
+
+The position for row `r` of a `[B, T, H, D]` tensor is `(r / heads) % T`, not
+`r % T`. The wrong form scrambles which position each head is rotated by while
+leaving every tensor *shape* unchanged, so it survived until the attention layer was
+compared: 10/16 tokens instead of 16/16, failing at check 7.
+
+`r % T` is correct when there is one head, so the existing single-head unit test
+could not distinguish them. `rope_uses_the_position_not_the_row` now exercises two
+heads over three positions.
+
+### Two bugs no golden bundle could catch, and what was done about them
+
+Mutation testing found two injections that passed everything:
+
+**GQA head ordering.** `repeat_kv` expands as `hidden[:, :, None].expand(b, kvh,
+n_rep, ...)` then reshapes, so query head `j` reads kv head `j / n_rep`. The wrong
+ordering is *identical* when `num_key_value_heads == 1`, which is what the tiny bundle
+has. The real 27B model has a ratio of 3. This cannot be fixed in the bundle without
+changing its config, so it is pinned by `gqa_head_mapping_is_contiguous_per_kv_head`,
+which uses two kv heads. That test fails under the injection; no golden check does.
+
+**A doubled final norm.** `Qwen3_5RMSNorm.__init__` is `nn.Parameter(torch.zeros(dim))`
+and its forward is `output * (1.0 + weight)`, so with the reference's own
+initialisation `1 + w == 1` and the norm is a *pure* normalisation. Normalising twice
+is then a no-op, because a normalised vector already has unit RMS. A model shell that
+applied the final norm twice passed all 11 model checks and all 16 tokens.
+
+That one *is* fixable in the artifact, so it was: the generator gained
+`--randomize-norms`, which fills plain RMSNorm weights with `N(0, 0.5)` and gated ones
+with `1 + N(0, 0.5)`. The operator and every code path are unchanged; only the values
+are. Both committed bundles were regenerated with it. The same injection now reports
+
+```
+   10. final norm    abs=3.599e0    rel=6.538e-1    FAIL
+   11. logits        abs=3.381e-1   rel=5.065e-1    FAIL
+```
+
+with every layer still passing -- because the layers do not include the final norm,
+which is exactly why the model-level check has to exist.
+
+### Tolerance and the amplified bundle
+
+`--ssm-gain` multiplies `linear_attn.out_proj`, so the recurrent path's contribution
+to the residual -- and its absolute rounding error -- scale by the same factor.
+Holding the tolerance fixed made `golden_sensitive` fail on arithmetic that is
+proportionally identical (1.54e-5 against a 1e-5 bound, with 16/16 tokens matching).
+The tolerance is now `1e-5 * max(1, ssm_gain)` and is printed, so the amplified bundle
+is judged at the same *relative* stringency rather than a looser or stricter one.
+
+### Six more injected bugs, all caught
+
+| Injected bug | First failing check |
+|---|---|
+| output gate uses `swish` | attention check 7 |
+| rope applied with the row index as the position | attention check 7 |
+| causal mask removed | attention check 7 |
+| `1/sqrt(head_dim)` scaling dropped | attention check 7 |
+| query/gate split front-and-back | attention check 3 (`q_norm`) |
+| final norm applied twice | model check 10 (`final norm`) |
+
+Plus, from the earlier steps, the capture-index and residual bugs, all still caught.
 
 ## The two committed bundles
 
