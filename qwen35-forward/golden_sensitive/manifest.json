@@ -94,6 +94,7 @@
   },
   "hooked_modules": [
     "model.embed_tokens",
+    "model.layers.0",
     "model.layers.0.linear_attn",
     "model.layers.0.linear_attn.norm",
     "model.layers.0.linear_attn.out_proj",
@@ -107,6 +108,7 @@
     "model.layers.0.mlp.down_proj",
     "model.layers.0.input_layernorm",
     "model.layers.0.post_attention_layernorm",
+    "model.layers.1",
     "model.layers.1.linear_attn",
     "model.layers.1.linear_attn.norm",
     "model.layers.1.linear_attn.out_proj",
@@ -120,6 +122,7 @@
     "model.layers.1.mlp.down_proj",
     "model.layers.1.input_layernorm",
     "model.layers.1.post_attention_layernorm",
+    "model.layers.2",
     "model.layers.2.linear_attn",
     "model.layers.2.linear_attn.norm",
     "model.layers.2.linear_attn.out_proj",
@@ -133,6 +136,7 @@
     "model.layers.2.mlp.down_proj",
     "model.layers.2.input_layernorm",
     "model.layers.2.post_attention_layernorm",
+    "model.layers.3",
     "model.layers.3.self_attn",
     "model.layers.3.self_attn.q_proj",
     "model.layers.3.self_attn.k_proj",
@@ -146,6 +150,7 @@
     "model.layers.3.mlp.down_proj",
     "model.layers.3.input_layernorm",
     "model.layers.3.post_attention_layernorm",
+    "model.layers.4",
     "model.layers.4.linear_attn",
     "model.layers.4.linear_attn.norm",
     "model.layers.4.linear_attn.out_proj",
@@ -159,6 +164,7 @@
     "model.layers.4.mlp.down_proj",
     "model.layers.4.input_layernorm",
     "model.layers.4.post_attention_layernorm",
+    "model.layers.5",
     "model.layers.5.linear_attn",
     "model.layers.5.linear_attn.norm",
     "model.layers.5.linear_attn.out_proj",
@@ -172,6 +178,7 @@
     "model.layers.5.mlp.down_proj",
     "model.layers.5.input_layernorm",
     "model.layers.5.post_attention_layernorm",
+    "model.layers.6",
     "model.layers.6.linear_attn",
     "model.layers.6.linear_attn.norm",
     "model.layers.6.linear_attn.out_proj",
@@ -185,6 +192,7 @@
     "model.layers.6.mlp.down_proj",
     "model.layers.6.input_layernorm",
     "model.layers.6.post_attention_layernorm",
+    "model.layers.7",
     "model.layers.7.self_attn",
     "model.layers.7.self_attn.q_proj",
     "model.layers.7.self_attn.k_proj",
@@ -2138,6 +2146,19 @@
     },
     {
       "group": "intermediates",
+      "name": "model__layers__0__mlp__swiglu_product",
+      "file": "intermediates/model__layers__0__mlp__swiglu_product.f32",
+      "shape": [
+        1,
+        6,
+        128
+      ],
+      "dtype": "f32",
+      "numel": 768,
+      "nbytes": 3072
+    },
+    {
+      "group": "intermediates",
       "name": "model__layers__0__mlp__down_proj",
       "file": "intermediates/model__layers__0__mlp__down_proj.f32",
       "shape": [
@@ -2153,6 +2174,19 @@
       "group": "intermediates",
       "name": "model__layers__0__mlp",
       "file": "intermediates/model__layers__0__mlp.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__0",
+      "file": "intermediates/model__layers__0.f32",
       "shape": [
         1,
         6,
@@ -2428,6 +2462,19 @@
     },
     {
       "group": "intermediates",
+      "name": "model__layers__1__mlp__swiglu_product",
+      "file": "intermediates/model__layers__1__mlp__swiglu_product.f32",
+      "shape": [
+        1,
+        6,
+        128
+      ],
+      "dtype": "f32",
+      "numel": 768,
+      "nbytes": 3072
+    },
+    {
+      "group": "intermediates",
       "name": "model__layers__1__mlp__down_proj",
       "file": "intermediates/model__layers__1__mlp__down_proj.f32",
       "shape": [
@@ -2443,6 +2490,19 @@
       "group": "intermediates",
       "name": "model__layers__1__mlp",
       "file": "intermediates/model__layers__1__mlp.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__1",
+      "file": "intermediates/model__layers__1.f32",
       "shape": [
         1,
         6,
@@ -2718,6 +2778,19 @@
     },
     {
       "group": "intermediates",
+      "name": "model__layers__2__mlp__swiglu_product",
+      "file": "intermediates/model__layers__2__mlp__swiglu_product.f32",
+      "shape": [
+        1,
+        6,
+        128
+      ],
+      "dtype": "f32",
+      "numel": 768,
+      "nbytes": 3072
+    },
+    {
+      "group": "intermediates",
       "name": "model__layers__2__mlp__down_proj",
       "file": "intermediates/model__layers__2__mlp__down_proj.f32",
       "shape": [
@@ -2733,6 +2806,19 @@
       "group": "intermediates",
       "name": "model__layers__2__mlp",
       "file": "intermediates/model__layers__2__mlp.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__2",
+      "file": "intermediates/model__layers__2.f32",
       "shape": [
         1,
         6,
@@ -2889,6 +2975,19 @@
     },
     {
       "group": "intermediates",
+      "name": "model__layers__3__mlp__swiglu_product",
+      "file": "intermediates/model__layers__3__mlp__swiglu_product.f32",
+      "shape": [
+        1,
+        6,
+        128
+      ],
+      "dtype": "f32",
+      "numel": 768,
+      "nbytes": 3072
+    },
+    {
+      "group": "intermediates",
       "name": "model__layers__3__mlp__down_proj",
       "file": "intermediates/model__layers__3__mlp__down_proj.f32",
       "shape": [
@@ -2904,6 +3003,19 @@
       "group": "intermediates",
       "name": "model__layers__3__mlp",
       "file": "intermediates/model__layers__3__mlp.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__3",
+      "file": "intermediates/model__layers__3.f32",
       "shape": [
         1,
         6,
@@ -3179,6 +3291,19 @@
     },
     {
       "group": "intermediates",
+      "name": "model__layers__4__mlp__swiglu_product",
+      "file": "intermediates/model__layers__4__mlp__swiglu_product.f32",
+      "shape": [
+        1,
+        6,
+        128
+      ],
+      "dtype": "f32",
+      "numel": 768,
+      "nbytes": 3072
+    },
+    {
+      "group": "intermediates",
       "name": "model__layers__4__mlp__down_proj",
       "file": "intermediates/model__layers__4__mlp__down_proj.f32",
       "shape": [
@@ -3194,6 +3319,19 @@
       "group": "intermediates",
       "name": "model__layers__4__mlp",
       "file": "intermediates/model__layers__4__mlp.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__4",
+      "file": "intermediates/model__layers__4.f32",
       "shape": [
         1,
         6,
@@ -3469,6 +3607,19 @@
     },
     {
       "group": "intermediates",
+      "name": "model__layers__5__mlp__swiglu_product",
+      "file": "intermediates/model__layers__5__mlp__swiglu_product.f32",
+      "shape": [
+        1,
+        6,
+        128
+      ],
+      "dtype": "f32",
+      "numel": 768,
+      "nbytes": 3072
+    },
+    {
+      "group": "intermediates",
       "name": "model__layers__5__mlp__down_proj",
       "file": "intermediates/model__layers__5__mlp__down_proj.f32",
       "shape": [
@@ -3484,6 +3635,19 @@
       "group": "intermediates",
       "name": "model__layers__5__mlp",
       "file": "intermediates/model__layers__5__mlp.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__5",
+      "file": "intermediates/model__layers__5.f32",
       "shape": [
         1,
         6,
@@ -3759,6 +3923,19 @@
     },
     {
       "group": "intermediates",
+      "name": "model__layers__6__mlp__swiglu_product",
+      "file": "intermediates/model__layers__6__mlp__swiglu_product.f32",
+      "shape": [
+        1,
+        6,
+        128
+      ],
+      "dtype": "f32",
+      "numel": 768,
+      "nbytes": 3072
+    },
+    {
+      "group": "intermediates",
       "name": "model__layers__6__mlp__down_proj",
       "file": "intermediates/model__layers__6__mlp__down_proj.f32",
       "shape": [
@@ -3774,6 +3951,19 @@
       "group": "intermediates",
       "name": "model__layers__6__mlp",
       "file": "intermediates/model__layers__6__mlp.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__6",
+      "file": "intermediates/model__layers__6.f32",
       "shape": [
         1,
         6,
@@ -3930,6 +4120,19 @@
     },
     {
       "group": "intermediates",
+      "name": "model__layers__7__mlp__swiglu_product",
+      "file": "intermediates/model__layers__7__mlp__swiglu_product.f32",
+      "shape": [
+        1,
+        6,
+        128
+      ],
+      "dtype": "f32",
+      "numel": 768,
+      "nbytes": 3072
+    },
+    {
+      "group": "intermediates",
       "name": "model__layers__7__mlp__down_proj",
       "file": "intermediates/model__layers__7__mlp__down_proj.f32",
       "shape": [
@@ -3945,6 +4148,19 @@
       "group": "intermediates",
       "name": "model__layers__7__mlp",
       "file": "intermediates/model__layers__7__mlp.f32",
+      "shape": [
+        1,
+        6,
+        64
+      ],
+      "dtype": "f32",
+      "numel": 384,
+      "nbytes": 1536
+    },
+    {
+      "group": "intermediates",
+      "name": "model__layers__7",
+      "file": "intermediates/model__layers__7.f32",
       "shape": [
         1,
         6,

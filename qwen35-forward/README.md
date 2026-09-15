@@ -34,7 +34,7 @@ bundle/              Rust reader + comparator
   bundlecmp summary|show|compare|selftest
 delta/               the gated delta rule, checked against the unit golden
   deltacheck <bundle>
-gdn/                 the gated delta net block (rule + projections + conv + norm)
+gdn/                 one decoder layer: gated delta net + SwiGLU MLP + residuals
   gdncheck <bundle> [--layer N] [--input TENSOR]
 golden_tiny/         committed bundle (gain=1.0, for per-tensor comparison)
 golden_sensitive/    committed bundle (gain=300, for token-trace comparison)
@@ -230,6 +230,74 @@ residual-stream output, which the bundle does not capture (only submodule output
 are hooked), so those require an explicit `--input <tensor>`; `gdncheck` refuses
 rather than silently normalising an already-normalised tensor — which is exactly
 the mistake the first run made.
+
+## Step three: the full decoder layer
+
+`gdn/src/layer.rs` adds the other half of the layer — the SwiGLU MLP and the two
+residual connections — and `gdncheck` now runs **24 checks covering one complete
+decoder layer**:
+
+```
+   1. input_layernorm        abs=4.768e-7    ok
+   ...
+  17. block output           abs=1.630e-9    ok
+  18. post_attention_layernorm   abs=2.384e-7    ok
+  19. mlp gate_proj              abs=8.941e-8    ok
+  20. mlp up_proj                abs=9.965e-8    ok
+  21. mlp swiglu product         abs=1.490e-8    ok
+  22. mlp down_proj              abs=2.328e-9    ok
+  23. mlp output                 abs=2.328e-9    ok
+  24. layer output (both residuals)  abs=3.725e-9    ok
+
+   RESULT: PASS (24 checks)
+```
+
+Every error is at `1e-7` or below — f32 rounding across the full layer.
+
+### The MLP
+
+`Qwen3_5MLP.forward` is one SwiGLU expression, no biases:
+
+```python
+down_proj(act_fn(gate_proj(x)) * up_proj(x))     # hidden_act = "silu"
+```
+
+The elementwise product `silu(gate) * up` is never bound to a name in the
+reference and no module produces it, so hooks on `gate_proj`/`up_proj` yield only
+its two *inputs*. `SwigluSpy` records the product itself, because that is where a
+SwiGLU implementation most plausibly goes wrong.
+
+### The residuals
+
+```python
+residual = hidden_states                    # BEFORE the layernorm  (pre-norm)
+hidden_states = input_layernorm(hidden_states)
+hidden_states = linear_attn(...)
+hidden_states = residual + hidden_states    # first residual
+
+residual = hidden_states                    # the UPDATED value, not the layer input
+hidden_states = post_attention_layernorm(hidden_states)
+hidden_states = mlp(hidden_states)
+hidden_states = residual + hidden_states    # second residual
+```
+
+No scale, no dropout, no gate: plain `x + f(x)`.
+
+### Seven more injected bugs, all caught
+
+| Injected bug | First failing check |
+|---|---|
+| both branches get `silu` | **21. mlp swiglu product** |
+| `silu` dropped entirely | **21. mlp swiglu product** |
+| `gate` and `up` swapped | **21. mlp swiglu product** |
+| `gate_proj` given `up_proj`'s weights | **19. mlp gate_proj** |
+| residual adds the post-norm value | **18. post_attention_layernorm** |
+| second residual uses the original input | **24. layer output** |
+| second residual dropped | **24. layer output** |
+
+**The last two fail only check 24 and nothing else.** That is the argument for
+capturing the decoder layer's own output: without it, both residual bugs are
+completely invisible — every submodule would still match exactly.
 
 ## The two committed bundles
 

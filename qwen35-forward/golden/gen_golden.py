@@ -141,12 +141,22 @@ def dump_weights(bundle: Bundle, model: torch.nn.Module) -> int:
 # module-level `causal_conv1d_fn` and only passes `self.conv1d.weight`/`.bias` as
 # arguments, so the `nn.Conv1d` module is never invoked and a hook on it is dead.
 # `ModuleSpy` captures that tensor instead.
+# `layers.<N>` is included so a decoder layer's *output* is captured. Without it
+# there is no way to check the two residual adds, and no way to obtain layer N's
+# input from layer N-1's output -- which is what makes layers above 0 checkable at
+# all.
 HOOK_SUFFIXES = (
     "input_layernorm", "post_attention_layernorm", "mlp", "linear_attn",
     "self_attn", "norm", "in_proj_qkv", "in_proj_z", "in_proj_a",
     "in_proj_b", "out_proj", "q_proj", "k_proj", "v_proj", "o_proj",
     "q_norm", "k_norm", "gate_proj", "up_proj", "down_proj", "embed_tokens",
 )
+
+
+def _is_decoder_layer(name: str) -> bool:
+    """True for `...layers.<N>` but not for anything nested inside it."""
+    parts = name.split(".")
+    return len(parts) >= 2 and parts[-2] == "layers" and parts[-1].isdigit()
 
 
 class ModuleSpy:
@@ -237,7 +247,7 @@ class HookRecorder:
         for name, mod in model.named_modules():
             if not name:
                 continue
-            if not any(name.endswith(s) for s in HOOK_SUFFIXES):
+            if not (any(name.endswith(s) for s in HOOK_SUFFIXES) or _is_decoder_layer(name)):
                 continue
             self.handles.append(mod.register_forward_hook(self._hook(safe_name(name))))
             hooked.append(name)
@@ -247,6 +257,67 @@ class HookRecorder:
         for h in self.handles:
             h.remove()
         self.handles.clear()
+
+
+# --------------------------------------------------------------------------- #
+# SwiGLU intermediate capture
+# --------------------------------------------------------------------------- #
+
+class SwigluSpy:
+    """Capture `silu(gate_proj(x)) * up_proj(x)`, the elementwise product.
+
+    `Qwen3_5MLP.forward` is a single expression:
+
+        down_proj(act_fn(gate_proj(x)) * up_proj(x))
+
+    so the product is never bound to a name and no module produces it -- hooks on
+    `gate_proj` and `up_proj` give the two *inputs* to the multiplication but not
+    its result. That result is where a SwiGLU implementation most plausibly goes
+    wrong (wrong branch activated, or the order swapped), so it is worth recording
+    explicitly. The spy recomputes nothing: it re-derives the product from the two
+    tensors the projections returned.
+    """
+
+    def __init__(self, bundle: Bundle, model, act_fn):
+        self.bundle = bundle
+        self.model = model
+        self.act_fn = act_fn
+        self.handles = []
+        self.count = 0
+        # keyed by layer prefix, holding whichever of gate/up has arrived.
+        self._pending: dict[str, dict] = {}
+
+    def __enter__(self):
+        for name, mod in self.model.named_modules():
+            if not name.endswith("mlp"):
+                continue
+            gate = getattr(mod, "gate_proj", None)
+            up = getattr(mod, "up_proj", None)
+            if gate is None or up is None:
+                continue
+            self.handles.append(gate.register_forward_hook(self._mk(name, "gate")))
+            self.handles.append(up.register_forward_hook(self._mk(name, "up")))
+        return self
+
+    def _mk(self, layer_name: str, which: str):
+        prefix = safe_name(layer_name.rsplit(".", 1)[0])
+        holder = self._pending
+
+        def fn(_m, _i, out):
+            slot = holder.setdefault(prefix, {})
+            slot[which] = out
+            if "gate" in slot and "up" in slot:
+                gate, up = slot.pop("gate"), slot.pop("up")
+                product = self.act_fn(gate) * up
+                self.bundle.write("intermediates", f"{prefix}__mlp__swiglu_product", product)
+                self.count += 1
+        return fn
+
+    def __exit__(self, *exc):
+        for h in self.handles:
+            h.remove()
+        self.handles.clear()
+        return False
 
 
 # --------------------------------------------------------------------------- #
@@ -490,20 +561,24 @@ def main() -> int:
     delta_cap: dict = {}
     conv_calls = 0
     conv_upd_calls = 0
+    act_fn = M.ACT2FN[cfg.hidden_act]
     with torch.no_grad(), \
             ModuleSpy(bundle, M, "causal_conv1d_fn") as conv_spy, \
             ModuleSpy(bundle, M, "causal_conv1d_update",
                       expect_calls=False) as conv_upd_spy, \
-            DeltaOperandSpy(bundle, M, delta_cap) as delta_spy:
+            DeltaOperandSpy(bundle, M, delta_cap) as delta_spy, \
+            SwigluSpy(bundle, model, act_fn) as swiglu_spy:
         out_main = model(input_ids=ids)
         conv_calls = conv_spy.calls
         conv_upd_calls = conv_upd_spy.calls
         delta_calls = delta_spy.calls
+        swiglu_calls = swiglu_spy.count
     rec.detach()
     print(f"  hooked {len(hooked)} modules -> {rec.count} tensors")
     print(f"  causal_conv1d_fn spy: {conv_calls} call(s); "
           f"causal_conv1d_update spy: {conv_upd_calls} call(s)")
     print(f"  delta rule spy: {delta_calls} call(s)")
+    print(f"  swiglu product spy: {swiglu_calls} call(s)")
 
     hidden = getattr(out_main, "last_hidden_state", None)
     if hidden is not None:

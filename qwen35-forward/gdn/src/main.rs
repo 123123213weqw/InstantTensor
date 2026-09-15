@@ -10,6 +10,7 @@
 
 use std::process::ExitCode;
 
+use gdn::layer::{layer_forward_from_mixer, LayerWeights, MlpWeights};
 use gdn::{forward, GdnConfig, GdnWeights};
 use goldenbundle::Bundle;
 
@@ -286,6 +287,57 @@ fn main() -> ExitCode {
 
     let trace = forward(&cfg, &weights, &g_in, b_sz, t_sz);
 
+    // ---- MLP + the two residuals -------------------------------------------
+    let intermediate = shape_of(&format!("{p}mlp__gate_proj"))
+        .last()
+        .copied()
+        .unwrap_or(0);
+    if intermediate == 0 {
+        eprintln!("cannot derive intermediate_size from {p}mlp__gate_proj");
+        return ExitCode::FAILURE;
+    }
+    let layer_weights = LayerWeights {
+        input_layernorm: weights.input_layernorm.clone(),
+        post_attention_layernorm: match w(&b, &format!("{p}post_attention_layernorm__weight"), hidden) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("{e}");
+                return ExitCode::FAILURE;
+            }
+        },
+        mlp: MlpWeights {
+            gate_proj: match w(&b, &format!("{p}mlp__gate_proj__weight"), intermediate * hidden) {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("{e}");
+                    return ExitCode::FAILURE;
+                }
+            },
+            up_proj: match w(&b, &format!("{p}mlp__up_proj__weight"), intermediate * hidden) {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("{e}");
+                    return ExitCode::FAILURE;
+                }
+            },
+            down_proj: match w(&b, &format!("{p}mlp__down_proj__weight"), hidden * intermediate) {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("{e}");
+                    return ExitCode::FAILURE;
+                }
+            },
+        },
+    };
+    let ltrace = layer_forward_from_mixer(
+        &layer_weights,
+        &trace.out_proj,
+        &g_in,
+        &trace.input_layernorm,
+        trace.clone(),
+        b_sz * t_sz,
+    );
+
     let mut r = Report { checks: 0, failed: 0 };
     let get = |n: &str| b.read(n).ok();
 
@@ -351,6 +403,34 @@ fn main() -> ExitCode {
     cmp!("15. gated norm", trace.norm, &format!("{attn}norm"));
     cmp!("16. out_proj", trace.out_proj, &format!("{attn}out_proj"));
     cmp!("17. block output", trace.out_proj, &format!("{p}linear_attn"));
+    cmp!(
+        "18. post_attention_layernorm",
+        ltrace.post_attention_layernorm,
+        &format!("{p}post_attention_layernorm")
+    );
+    cmp!(
+        "19. mlp gate_proj",
+        ltrace.mlp.gate_proj,
+        &format!("{p}mlp__gate_proj")
+    );
+    cmp!("20. mlp up_proj", ltrace.mlp.up_proj, &format!("{p}mlp__up_proj"));
+    cmp!(
+        "21. mlp swiglu product",
+        ltrace.mlp.swiglu_product,
+        &format!("{p}mlp__swiglu_product")
+    );
+    cmp!(
+        "22. mlp down_proj",
+        ltrace.mlp.down_proj,
+        &format!("{p}mlp__down_proj")
+    );
+    cmp!("23. mlp output", ltrace.mlp.down_proj, &format!("{p}mlp"));
+    // The decoder layer's own name has no trailing separator: `model__layers__0`.
+    cmp!(
+        "24. layer output (both residuals)",
+        ltrace.out,
+        format!("model__layers__{layer}").as_str()
+    );
 
     println!();
     if r.failed == 0 {

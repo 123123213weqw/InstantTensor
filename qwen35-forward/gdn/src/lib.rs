@@ -38,6 +38,14 @@
 
 use deltarule::{forward_prepared, Shape};
 
+pub mod layer;
+
+/// Default RMSNorm epsilon. The reference reads it from `config.rms_norm_eps`,
+/// which is `1e-6` for every qwen35 configuration checked; `GdnConfig::eps`
+/// carries the per-model value for the mixer, and `layer` uses this default for
+/// the two block-level norms.
+pub const EPS: f32 = 1e-6;
+
 /// Sizes for one gated-delta-net block.
 #[derive(Debug, Clone, Copy)]
 pub struct GdnConfig {
