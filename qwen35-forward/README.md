@@ -34,8 +34,11 @@ bundle/              Rust reader + comparator
   bundlecmp summary|show|compare|selftest
 delta/               the gated delta rule, checked against the unit golden
   deltacheck <bundle>
-gdn/                 one decoder layer: gated delta net + SwiGLU MLP + residuals
-  gdncheck <bundle> [--layer N] [--input TENSOR]
+gdn/                 the decoder stack: gated delta net + SwiGLU MLP + residuals
+  lib.rs             the mixer (conv, GQA, delta rule, gated norm, out_proj)
+  layer.rs           one layer: input norm, mixer, MLP, both residuals
+  loader.rs          bundle -> weights, and the layer -> capture-index mapping
+  gdncheck <bundle> [--layer N] [--chain] [--verbose]
 golden_tiny/         committed bundle (gain=1.0, for per-tensor comparison)
 golden_sensitive/    committed bundle (gain=300, for token-trace comparison)
 ```
@@ -298,6 +301,122 @@ No scale, no dropout, no gate: plain `x + f(x)`.
 **The last two fail only check 24 and nothing else.** That is the argument for
 capturing the decoder layer's own output: without it, both residual bugs are
 completely invisible — every submodule would still match exactly.
+
+## Step four: the whole stack, layer by layer
+
+`gdncheck` now runs over every layer, not just layer 0:
+
+```bash
+./target/release/gdncheck golden_tiny            # every verifiable layer
+./target/release/gdncheck golden_tiny --layer 4  # one layer, all 24 checks
+./target/release/gdncheck golden_tiny --chain    # feed each output forward
+./target/release/gdncheck golden_tiny --verbose  # all checks for every layer
+```
+
+```
+   layer type              first failing / worst check               abs  layer-out
+   0     linear_attention  worst: 11. g (decay)                 1.907e-6   3.725e-9  ok
+   1     linear_attention  worst: 11. g (decay)                 1.907e-6   3.725e-9  ok
+   2     linear_attention  worst: 11. g (decay)                 1.907e-6   5.588e-9  ok
+   3     full_attention    — not implemented (full_attention) —
+   4     linear_attention  worst: 11. g (decay)                 1.907e-6   7.451e-9  ok
+   5     linear_attention  worst: 11. g (decay)                 1.907e-6   5.588e-9  ok
+   6     linear_attention  worst: 11. g (decay)                 1.907e-6   7.451e-9  ok
+   7     full_attention    — not implemented (full_attention) —
+
+   RESULT: PASS (6 layers)
+```
+
+Six of the eight layers pass, with different weights and different inputs than layer
+0 — so the block generalises rather than happening to fit one layer.
+
+### Why the interface already existed
+
+Layer *N*'s output is layer *N-1*'s input, and step three added a hook on the
+decoder layer itself. That is the whole inter-layer interface: no new capture was
+needed to stack layers.
+
+### Two ways to check a layer, and both are needed
+
+**Isolated** (the default) feeds each layer the input the *reference* produced for
+it. An error in layer 2 cannot contaminate the verdict on layer 4, so a failure
+names the layer that caused it.
+
+**Chained** (`--chain`) feeds each layer's own output into the next. It localises
+worse — one bad layer shows up in all the layers after it — but it is the only way
+to show the stack works end to end. It answers the question the isolated mode
+cannot: does rounding accumulate?
+
+```
+   layer-output error, chained vs isolated (the drift check)
+     layer 0   chained=3.725e-9    isolated=3.725e-9    ratio=1.00
+     layer 1   chained=7.451e-9    isolated=3.725e-9    ratio=2.00
+     layer 2   chained=9.313e-9    isolated=5.588e-9    ratio=1.67
+     layer 4   chained=7.451e-9    isolated=7.451e-9    ratio=1.00
+     layer 5   chained=7.451e-9    isolated=5.588e-9    ratio=1.33
+     layer 6   chained=1.490e-8    isolated=7.451e-9    ratio=2.00
+```
+
+At most 2x, and still in the `1e-8` range three layers deep. Nothing accumulates.
+
+A full-attention layer breaks a chain: its output cannot be computed, so the layer
+after it has no input this implementation can produce. `--chain` therefore runs over
+maximal *runs* of linear layers — `[[0, 1, 2], [4, 5, 6]]` here — starting each run
+from the golden input of its first layer.
+
+### The capture index is not the layer index
+
+This is the bug that made a single-layer checker look correct. The convolution and
+delta-rule captures are named by **position among the linear-attention layers**:
+
+```text
+causal_conv1d_fn_call<K>_in / _out
+delta_torch_chunk_gated_delta_rule_<K>__{q,k,v,g,beta,out,state}
+```
+
+`K` counts only the layers that run the delta rule. The linear layers here are
+0, 1, 2, 4, 5, 6, so **layer 4's convolution is `call3`, not `call4`**. Indexing by
+layer number is correct for layers 0-2 and wrong from layer 4 on — precisely the
+kind of bug that survives a test that only ever ran layer 0. `loader::LayerCapture`
+is now the single place the mapping lives, and `ssm_ordinal` is unit-tested against
+the real layer-type pattern.
+
+Reintroducing the bug proves it is load-bearing:
+
+```
+   4     linear_attention  FAIL 3. conv input (channels-first)    1.030e+0   FAIL (9 checks)
+   5     linear_attention  FAIL 3. conv input (channels-first)    8.206e-1   FAIL (9 checks)
+   6     linear_attention  FAIL 3. conv input (channels-first) MISSING causal_conv1d_fn_call6_in
+```
+
+### A silent skip that mutation testing exposed
+
+The first version of that run showed layers 4 and 5 failing but **layer 6 passing**
+under the same bug. Layer 6 looked up `causal_conv1d_fn_call6_*`, which does not
+exist, and a missing golden tensor was treated as *not a failure* — so nine checks
+disappeared without a word.
+
+A tensor that is absent for a **full-attention** layer is genuinely not applicable.
+A tensor that is absent for a **linear-attention** layer means the bundle is missing
+something it should have. That distinction is now explicit, and the same mutation
+reports `MISSING causal_conv1d_fn_call6_in` instead of a cheerful pass.
+
+### Four more injected bugs, all caught
+
+| Injected bug | First failing check | Layers affected |
+|---|---|---|
+| capture indexed by layer instead of ordinal | 3. conv input | 4, 5, 6 |
+| input normalised twice | 2. in_proj_qkv | all 6 |
+| first residual dropped | 18. post_attention_layernorm | all 6 |
+| SwiGLU `gate`/`up` swapped | 21. mlp swiglu product | all 6 |
+
+### What is now blocked, and on what
+
+Layers **3 and 7 are `full_attention`** and are reported as not implemented rather
+than guessed at. They need `Qwen3_5Attention`, which is a separate code path:
+`q_proj` emits **2x** `num_attention_heads * head_dim` with the second half used as
+a sigmoid gate, plus `q_norm`/`k_norm` and a partial rotary embedding. Until that
+exists, a chain cannot cross layer 3, and `--chain` starts a new run after it.
 
 ## The two committed bundles
 

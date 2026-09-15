@@ -39,6 +39,7 @@
 use deltarule::{forward_prepared, Shape};
 
 pub mod layer;
+pub mod loader;
 
 /// Default RMSNorm epsilon. The reference reads it from `config.rms_norm_eps`,
 /// which is `1e-6` for every qwen35 configuration checked; `GdnConfig::eps`
@@ -77,8 +78,6 @@ impl GdnConfig {
 /// All weights of one block, in the layout PyTorch stores them.
 #[derive(Debug, Clone)]
 pub struct GdnWeights {
-    /// `[hidden]` — `Qwen3_5RMSNorm`, applied as `x * (1 + w)`.
-    pub input_layernorm: Vec<f32>,
     /// `[conv_dim, hidden]`
     pub in_proj_qkv: Vec<f32>,
     /// `[value_dim, hidden]`
@@ -313,7 +312,6 @@ pub fn bct_to_btc(x: &[f32], b: usize, c: usize, t: usize) -> Vec<f32> {
 /// bundle at whichever step diverges first.
 #[derive(Debug, Clone)]
 pub struct GdnTrace {
-    pub input_layernorm: Vec<f32>,
     pub in_proj_qkv: Vec<f32>,
     pub conv_in: Vec<f32>,
     pub conv_out: Vec<f32>,
@@ -332,22 +330,24 @@ pub struct GdnTrace {
     pub out_proj: Vec<f32>,
 }
 
-/// Run one block.
+/// Run the mixer on an **already-normalised** input.
 ///
-/// `hidden` is the block input, `[B, T, hidden]`. The returned `out_proj` is the
-/// block's output.
-pub fn forward(cfg: &GdnConfig, w: &GdnWeights, hidden: &[f32], b: usize, t: usize) -> GdnTrace {
+/// `x` is the output of the decoder layer's `input_layernorm`, which the layer
+/// owns: `Qwen3_5GatedDeltaNet` has no `input_layernorm` of its own, and neither
+/// does `Qwen3_5Attention`. Applying it here instead would look correct on a
+/// single layer while double-normalising in a chain, so the layer does it.
+///
+/// `x` is `[B, T, hidden]`. The returned `out_proj` is the mixer's output.
+pub fn forward(cfg: &GdnConfig, w: &GdnWeights, x: &[f32], b: usize, t: usize) -> GdnTrace {
     let h = cfg.hidden;
     let rows = b * t;
+    assert_eq!(x.len(), rows * h, "gdn input size vs config");
 
-    // 1. input_layernorm: x * (1 + w)
-    let x = rmsnorm_1plus(&w.input_layernorm, hidden, rows, h, cfg.eps);
-
-    // 2. projections
-    let mixed = linear(&w.in_proj_qkv, None, &x, rows, h, cfg.conv_dim()); // [rows, conv_dim]
-    let z_full = linear(&w.in_proj_z, None, &x, rows, h, cfg.value_dim()); // [rows, value_dim]
-    let bb = linear(&w.in_proj_b, None, &x, rows, h, cfg.num_v_heads);
-    let aa = linear(&w.in_proj_a, None, &x, rows, h, cfg.num_v_heads);
+    // 1. projections
+    let mixed = linear(&w.in_proj_qkv, None, x, rows, h, cfg.conv_dim()); // [rows, conv_dim]
+    let z_full = linear(&w.in_proj_z, None, x, rows, h, cfg.value_dim()); // [rows, value_dim]
+    let bb = linear(&w.in_proj_b, None, x, rows, h, cfg.num_v_heads);
+    let aa = linear(&w.in_proj_a, None, x, rows, h, cfg.num_v_heads);
 
     // 3. conv over [B, C, T]. The reference transposes to channels-first, this
     //    operates on the same layout, then transposes back.
@@ -408,7 +408,6 @@ pub fn forward(cfg: &GdnConfig, w: &GdnWeights, hidden: &[f32], b: usize, t: usi
     let out_proj = linear(&w.out_proj, None, &norm, rows, vd, h);
 
     GdnTrace {
-        input_layernorm: x,
         in_proj_qkv: mixed,
         conv_in: mixed_bct,
         conv_out,

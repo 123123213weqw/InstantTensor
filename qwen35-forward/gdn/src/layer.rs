@@ -1,5 +1,4 @@
-//! The decoder layer: a token mixer (gated delta net, or attention) plus an MLP,
-//! each wrapped in a residual connection.
+//! The decoder layer: a token mixer plus an MLP, each wrapped in a residual.
 //!
 //! # Shape of the layer
 //!
@@ -19,11 +18,19 @@
 //!
 //! Three details that are easy to get wrong and produce plausible-looking output:
 //!
-//! * The first residual adds the value from **before** `input_layernorm` — this is
+//! * The first residual adds the value from **before** `input_layernorm` -- this is
 //!   pre-norm, not post-norm.
 //! * The second residual adds the value from **after** the first addition, not the
 //!   original layer input.
 //! * There is no scale, no dropout and no gate on either residual: plain `x + f(x)`.
+//!
+//! # Who owns which norm
+//!
+//! Both norms belong to the **layer**, not to the mixer. `Qwen3_5GatedDeltaNet` and
+//! `Qwen3_5Attention` each contain neither `input_layernorm` nor
+//! `post_attention_layernorm`. This matters when stacking layers: putting the input
+//! normalisation inside the mixer looks correct on one layer and double-normalises
+//! in a chain.
 //!
 //! # The MLP
 //!
@@ -31,13 +38,13 @@
 //!
 //! ```python
 //! down_proj(act_fn(gate_proj(x)) * up_proj(x))
-// ```
+//! ```
 //!
 //! with `hidden_act = "silu"`. The elementwise product `silu(gate) * up` is where
 //! an implementation most plausibly goes wrong (wrong branch activated, or the two
 //! swapped), which is why the golden bundle records it as its own tensor.
 
-use crate::{linear, rmsnorm_1plus, GdnTrace, EPS};
+use crate::{linear, rmsnorm_1plus, GdnConfig, GdnTrace, GdnWeights};
 
 /// MLP weights, in PyTorch's `[out, in]` storage order. No biases.
 #[derive(Debug, Clone)]
@@ -69,7 +76,13 @@ pub fn silu(x: f32) -> f32 {
 /// SwiGLU MLP: `down_proj(silu(gate_proj(x)) * up_proj(x))`.
 ///
 /// `x` is `[rows, hidden]`; the result is `[rows, hidden]`.
-pub fn mlp_forward(w: &MlpWeights, x: &[f32], rows: usize, hidden: usize, intermediate: usize) -> MlpTrace {
+pub fn mlp_forward(
+    w: &MlpWeights,
+    x: &[f32],
+    rows: usize,
+    hidden: usize,
+    intermediate: usize,
+) -> MlpTrace {
     let gate = linear(&w.gate_proj, None, x, rows, hidden, intermediate);
     let up = linear(&w.up_proj, None, x, rows, hidden, intermediate);
 
@@ -89,7 +102,19 @@ pub fn mlp_forward(w: &MlpWeights, x: &[f32], rows: usize, hidden: usize, interm
     }
 }
 
-/// Weights of a full decoder layer.
+/// Which token mixer a layer uses.
+///
+/// `Qwen3_5DecoderLayer.__init__` picks exactly one of these, based on
+/// `config.layer_types[layer_idx]`, and builds no other token-mixing submodule.
+pub enum Mixer<'a> {
+    /// `Qwen3_5GatedDeltaNet` -- the gated delta net, used by 3 of every 4 layers.
+    LinearAttention(&'a GdnConfig, &'a GdnWeights),
+    /// `Qwen3_5Attention`. Not implemented yet; `layer_forward` reports it rather
+    /// than silently skipping or guessing.
+    FullAttention,
+}
+
+/// Weights of a full decoder layer. Both norms live here, not in the mixer.
 #[derive(Debug, Clone)]
 pub struct LayerWeights {
     /// `[hidden]`, applied as `x * (1 + w)`.
@@ -102,56 +127,85 @@ pub struct LayerWeights {
 /// Trace of a full layer.
 #[derive(Debug, Clone)]
 pub struct LayerTrace {
+    /// Output of `input_layernorm` -- the mixer's input.
     pub input_layernorm: Vec<f32>,
-    /// Output of the token mixer (the gated delta net today).
-    pub mixer: GdnTrace,
-    /// `input + mixer_out_proj`
+    /// The mixer's own trace. Only linear-attention layers have one today.
+    pub linear_attn: GdnTrace,
+    /// `layer_input + mixer_out`
     pub after_first_residual: Vec<f32>,
     pub post_attention_layernorm: Vec<f32>,
     pub mlp: MlpTrace,
-    /// `after_first_residual + mlp_out` — the layer's output.
+    /// `after_first_residual + mlp_out` -- the layer's output, and the next
+    /// layer's input.
     pub out: Vec<f32>,
 }
 
-/// Run the MLP half of a layer given the already-computed mixer output.
+/// Run a whole decoder layer.
 ///
-/// Kept separate from [`layer_forward`] so that the parts can be checked
-/// independently: the mixer half is already validated on its own.
+/// `hidden_in` is `[B, T, hidden]`. Returns the layer's output, which is the next
+/// layer's input.
+pub fn layer_forward(
+    mixer: Mixer<'_>,
+    lw: &LayerWeights,
+    hidden_in: &[f32],
+    b: usize,
+    t: usize,
+    eps: f32,
+) -> Result<LayerTrace, String> {
+    let rows = b * t;
+    let hidden = lw.input_layernorm.len();
+    assert_eq!(hidden_in.len(), rows * hidden, "layer input size");
+
+    // The layer's input norm, applied once, before the mixer.
+    let ln = rmsnorm_1plus(&lw.input_layernorm, hidden_in, rows, hidden, eps);
+
+    match mixer {
+        Mixer::LinearAttention(cfg, gw) => {
+            let mt = crate::forward(cfg, gw, &ln, b, t);
+            Ok(layer_forward_from_mixer(lw, hidden_in, &ln, mt, rows, eps))
+        }
+        Mixer::FullAttention => Err("full_attention mixer is not implemented yet".to_string()),
+    }
+}
+
+/// Finish a layer given the mixer has already run.
+///
+/// Kept separate from [`layer_forward`] so the two halves can be exercised
+/// independently, and so a mixer with a different trace type can reuse the MLP and
+/// residual code unchanged.
 pub fn layer_forward_from_mixer(
     lw: &LayerWeights,
-    mixer_out: &[f32],
     layer_input: &[f32],
-    layernorm_out: &[f32],
-    mixer_trace: GdnTrace,
+    input_layernorm_out: &[f32],
+    linear_attn: GdnTrace,
     rows: usize,
+    eps: f32,
 ) -> LayerTrace {
     let hidden = lw.input_layernorm.len();
+    // The mixer's output is `linear_attn.out_proj`; passing it separately invited
+    // the two to disagree.
+    let mixer_out = &linear_attn.out_proj;
     assert_eq!(layer_input.len(), rows * hidden, "layer input size");
     assert_eq!(mixer_out.len(), rows * hidden, "mixer output size");
-    assert_eq!(layernorm_out.len(), rows * hidden, "layernorm output size");
+    assert_eq!(input_layernorm_out.len(), rows * hidden, "layernorm output size");
 
     // First residual: the value from *before* input_layernorm.
     let after_first: Vec<f32> =
         (0..rows * hidden).map(|i| layer_input[i] + mixer_out[i]).collect();
 
     // post_attention_layernorm feeds the MLP.
-    let post_ln = rmsnorm_1plus(
-        &lw.post_attention_layernorm,
-        &after_first,
-        rows,
-        hidden,
-        EPS,
-    );
+    let post_ln = rmsnorm_1plus(&lw.post_attention_layernorm, &after_first, rows, hidden, eps);
 
     let intermediate = lw.mlp.gate_proj.len() / hidden;
     let mlp = mlp_forward(&lw.mlp, &post_ln, rows, hidden, intermediate);
 
     // Second residual: the value from *after* the first addition.
-    let out: Vec<f32> = (0..rows * hidden).map(|i| after_first[i] + mlp.down_proj[i]).collect();
+    let out: Vec<f32> =
+        (0..after_first.len()).map(|i| after_first[i] + mlp.down_proj[i]).collect();
 
     LayerTrace {
-        input_layernorm: layernorm_out.to_vec(),
-        mixer: mixer_trace,
+        input_layernorm: input_layernorm_out.to_vec(),
+        linear_attn,
         after_first_residual: after_first,
         post_attention_layernorm: post_ln,
         mlp,
@@ -162,6 +216,28 @@ pub fn layer_forward_from_mixer(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A `GdnTrace` with only `out_proj` populated, for tests that exercise the
+    /// MLP and the residuals without running the mixer.
+    fn stub_mixer_trace(out_proj: Vec<f32>) -> GdnTrace {
+        GdnTrace {
+            in_proj_qkv: vec![],
+            conv_in: vec![],
+            conv_out: vec![],
+            in_proj_z: vec![],
+            in_proj_b: vec![],
+            in_proj_a: vec![],
+            q: vec![],
+            k: vec![],
+            v: vec![],
+            g: vec![],
+            beta: vec![],
+            delta_out: vec![],
+            delta_state: vec![],
+            norm: vec![],
+            out_proj,
+        }
+    }
 
     #[test]
     fn silu_matches_definition() {
@@ -193,45 +269,47 @@ mod tests {
 
     #[test]
     fn residuals_are_plain_adds_and_second_uses_updated_value() {
-        // hidden=2, rows=1, intermediate=2; make the MLP an identity-ish map so the
-        // expected arithmetic is easy to state.
+        // A zero MLP makes `out == after_first`, so the residual arithmetic is what
+        // the assertions actually exercise.
         let lw = LayerWeights {
-            input_layernorm: vec![0.0, 0.0],       // x*(1+0) -> scale 1
+            input_layernorm: vec![0.0, 0.0],
             post_attention_layernorm: vec![0.0, 0.0],
             mlp: MlpWeights {
-                // produce constant zeros so `out == after_first`
-                gate_proj: vec![0.0, 0.0, 0.0, 0.0],
-                up_proj: vec![0.0, 0.0, 0.0, 0.0],
-                down_proj: vec![0.0, 0.0, 0.0, 0.0],
+                gate_proj: vec![0.0; 4],
+                up_proj: vec![0.0; 4],
+                down_proj: vec![0.0; 4],
             },
         };
         let layer_in = vec![1.0f32, 2.0];
         let mixer_out = vec![10.0f32, 20.0];
         let ln_out = vec![0.5f32, 0.5];
-        // Build a minimal GdnTrace standing in for the mixer.
-        let mixer = GdnTrace {
-            input_layernorm: ln_out.clone(),
-            in_proj_qkv: vec![],
-            conv_in: vec![],
-            conv_out: vec![],
-            in_proj_z: vec![],
-            in_proj_b: vec![],
-            in_proj_a: vec![],
-            q: vec![],
-            k: vec![],
-            v: vec![],
-            g: vec![],
-            beta: vec![],
-            delta_out: vec![],
-            delta_state: vec![],
-            norm: vec![],
-            out_proj: mixer_out.clone(),
-        };
-        let t = layer_forward_from_mixer(&lw, &mixer_out, &layer_in, &ln_out, mixer, 1);
+        let t = layer_forward_from_mixer(
+            &lw,
+            &layer_in,
+            &ln_out,
+            stub_mixer_trace(mixer_out),
+            1,
+            1e-6,
+        );
         // first residual adds the pre-norm input
         assert_eq!(t.after_first_residual, vec![11.0, 22.0]);
         // second residual adds to the *updated* value, not the original
         assert_eq!(t.out, vec![11.0, 22.0]);
         assert_ne!(t.out, vec![1.0, 2.0]);
+    }
+
+    #[test]
+    fn full_attention_layer_reports_rather_than_guesses() {
+        let lw = LayerWeights {
+            input_layernorm: vec![0.0],
+            post_attention_layernorm: vec![0.0],
+            mlp: MlpWeights {
+                gate_proj: vec![0.0],
+                up_proj: vec![0.0],
+                down_proj: vec![0.0],
+            },
+        };
+        let err = layer_forward(Mixer::FullAttention, &lw, &[1.0], 1, 1, 1e-6).unwrap_err();
+        assert!(err.contains("full_attention"), "{err}");
     }
 }

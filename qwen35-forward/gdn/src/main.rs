@@ -1,56 +1,120 @@
-//! `gdncheck` — run the gated delta net against a golden bundle, step by step.
+//! `gdncheck` — run the qwen35 decoder stack against a golden bundle.
 //!
 //! ```text
-//! gdncheck <bundle> [--layer N] [--top N]
+//! gdncheck <bundle>                 every verifiable layer, each fed the golden
+//!                                   input recorded for that layer
+//! gdncheck <bundle> --layer N       one layer, all checks printed
+//! gdncheck <bundle> --chain         feed each layer's own output forward
+//! gdncheck <bundle> --verbose       all checks for every layer
 //! ```
 //!
-//! Compares every intermediate the bundle captured for one block, in chain order,
-//! so the first divergence names the operator that is wrong rather than just
-//! reporting that the output differs.
+//! # Two ways to check a layer, and why both
+//!
+//! **Isolated** (the default) feeds each layer the input the *reference* produced
+//! for it, so an error in layer 2 cannot contaminate the verdict on layer 4. Errors
+//! point at the layer that caused them.
+//!
+//! **Chained** (`--chain`) feeds each layer's own output into the next. An error in
+//! layer 2 shows up in layer 4 too, so it localises worse, but it is the only way to
+//! show that the stack works end to end and that rounding does not accumulate.
+//!
+//! A full-attention layer breaks a chain: its output cannot be computed yet, so the
+//! layer after it has no input this implementation can produce. `--chain` therefore
+//! runs over maximal *runs* of linear layers, starting each run from the golden
+//! input of its first layer.
 
 use std::process::ExitCode;
 
-use gdn::layer::{layer_forward_from_mixer, LayerWeights, MlpWeights};
-use gdn::{forward, GdnConfig, GdnWeights};
+use gdn::layer::{layer_forward, LayerTrace, Mixer};
+use gdn::loader::{self, LayerCapture, ModelInfo};
+use gdn::GdnConfig;
 use goldenbundle::Bundle;
 
 const TOL: f32 = 1e-5;
 
-struct Report {
-    checks: usize,
-    failed: usize,
+struct Check {
+    label: String,
+    abs: f32,
+    rel: f32,
+    ok: bool,
+    /// Golden tensor absent from the bundle — reported, not counted as a failure.
+    missing: bool,
 }
 
-impl Report {
-    fn step(&mut self, label: &str, mine: &[f32], golden: &[f32]) {
-        self.checks += 1;
+struct Checker<'a> {
+    b: &'a Bundle,
+    checks: Vec<Check>,
+}
+
+impl Checker<'_> {
+    fn new(b: &Bundle) -> Checker<'_> {
+        Checker { b, checks: Vec::new() }
+    }
+
+    fn cmp_opt(&mut self, label: &str, mine: &[f32], name: Option<String>) {
+        let Some(name) = name else {
+            // Not applicable to this layer kind: a full-attention layer has no
+            // convolution and no delta rule, so there is nothing to compare.
+            self.checks.push(Check {
+                label: label.to_string(),
+                abs: f32::NAN,
+                rel: f32::NAN,
+                ok: true,
+                missing: true,
+            });
+            return;
+        };
+        match self.b.read(&name) {
+            Ok(golden) => self.compare(label, mine, &golden),
+            // Applicable but absent. The layer is a linear-attention layer, so the
+            // bundle is *supposed* to hold this tensor, and treating its absence as
+            // a pass silently drops the check: under a capture-index bug, layer 6
+            // looked up names that do not exist and nine checks vanished without a
+            // word. Absence is a failure.
+            Err(e) => self.checks.push(Check {
+                label: format!("{label} MISSING {name} ({e})"),
+                abs: f32::INFINITY,
+                rel: f32::INFINITY,
+                ok: false,
+                missing: false,
+            }),
+        }
+    }
+
+    fn cmp(&mut self, label: &str, mine: &[f32], name: &str) {
+        self.cmp_opt(label, mine, Some(name.to_string()));
+    }
+
+    fn compare(&mut self, label: &str, mine: &[f32], golden: &[f32]) {
         if mine.len() != golden.len() {
-            println!(
-                "   {:<44} SHAPE  mine={} golden={}",
-                label,
-                mine.len(),
-                golden.len()
-            );
-            self.failed += 1;
+            self.checks.push(Check {
+                label: format!("{label} SHAPE mine={} golden={}", mine.len(), golden.len()),
+                abs: f32::INFINITY,
+                rel: f32::INFINITY,
+                ok: false,
+                missing: false,
+            });
             return;
         }
-        let (d, at) = max_abs_diff(mine, golden);
+        let (abs, _at) = max_abs_diff(mine, golden);
         let scale = golden.iter().fold(0f32, |m, x| m.max(x.abs()));
-        let rel = if scale > 0.0 { d / scale } else { d };
-        let ok = d <= TOL;
-        if !ok {
-            self.failed += 1;
-        }
-        println!(
-            "   {:<44} abs={:<11.3e} rel={:<11.3e} {}",
-            label,
-            d,
+        let rel = if scale > 0.0 { abs / scale } else { abs };
+        self.checks.push(Check {
+            label: label.to_string(),
+            abs,
             rel,
-            if ok { "ok" } else { "FAIL" }
-        );
-        if !ok {
-            println!("        worst at index {at}  mine={} golden={}", mine[at], golden[at]);
-        }
+            ok: abs <= TOL,
+            missing: false,
+        });
+    }
+
+    fn failed(&self) -> usize {
+        self.checks.iter().filter(|c| !c.ok && !c.missing).count()
+    }
+
+    /// The first failing check: the earliest point in the chain that diverged.
+    fn first_failure(&self) -> Option<&Check> {
+        self.checks.iter().find(|c| !c.ok && !c.missing)
     }
 }
 
@@ -67,27 +131,137 @@ fn max_abs_diff(a: &[f32], b: &[f32]) -> (f32, usize) {
     (worst, at)
 }
 
-/// Load a golden weight tensor, checking its length against what the config needs.
-fn w(b: &Bundle, name: &str, expect_len: usize) -> Result<Vec<f32>, String> {
-    let v = b.read(name).map_err(|e| format!("{name}: {e}"))?;
-    if v.len() != expect_len {
-        return Err(format!("{name}: got {} values, expected {expect_len}", v.len()));
+/// Run one layer and compare all of its captured intermediates.
+fn verify_layer<'a>(
+    b: &'a Bundle,
+    m: &ModelInfo,
+    layer: usize,
+    input: &[f32],
+) -> Result<(Checker<'a>, LayerTrace), String> {
+    let c = LayerCapture::new(layer, m.ssm_ordinal(layer));
+    let lw = loader::load_layer_weights(b, m, layer)?;
+    let gw = loader::load_gdn_weights(b, m, layer)?;
+    let cfg: GdnConfig = m.gdn;
+    let tr = layer_forward(
+        Mixer::LinearAttention(&cfg, &gw),
+        &lw,
+        input,
+        m.b,
+        m.t,
+        m.eps,
+    )?;
+
+    let mut ck = Checker::new(b);
+    let g = &tr.linear_attn;
+
+    ck.cmp("1. input_layernorm", &tr.input_layernorm, &c.input_layernorm());
+    ck.cmp("2. in_proj_qkv", &g.in_proj_qkv, &c.in_proj_qkv());
+    ck.cmp_opt("3. conv input (channels-first)", &g.conv_in, c.conv_in());
+    ck.cmp_opt("4. conv + silu", &g.conv_out, c.conv_out());
+    ck.cmp("5. in_proj_z", &g.in_proj_z, &c.in_proj_z());
+    ck.cmp("6. in_proj_b", &g.in_proj_b, &c.in_proj_b());
+    ck.cmp("7. in_proj_a", &g.in_proj_a, &c.in_proj_a());
+    ck.cmp_opt("8. q (post-GQA)", &g.q, c.delta_operand("q"));
+    ck.cmp_opt("9. k (post-GQA)", &g.k, c.delta_operand("k"));
+    ck.cmp_opt("10. v", &g.v, c.delta_operand("v"));
+    ck.cmp_opt("11. g (decay)", &g.g, c.delta_operand("g"));
+    ck.cmp_opt("12. beta (gate)", &g.beta, c.delta_operand("beta"));
+    ck.cmp_opt("13. delta rule out", &g.delta_out, c.delta_out());
+    ck.cmp_opt("14. delta rule state", &g.delta_state, c.delta_state());
+    ck.cmp("15. gated norm", &g.norm, &c.mixer_norm());
+    ck.cmp("16. out_proj", &g.out_proj, &c.out_proj());
+    ck.cmp("17. block output", &g.out_proj, &c.linear_attn());
+    ck.cmp(
+        "18. post_attention_layernorm",
+        &tr.post_attention_layernorm,
+        &c.post_attention_layernorm(),
+    );
+    ck.cmp("19. mlp gate_proj", &tr.mlp.gate_proj, &c.mlp_gate_proj());
+    ck.cmp("20. mlp up_proj", &tr.mlp.up_proj, &c.mlp_up_proj());
+    ck.cmp("21. mlp swiglu product", &tr.mlp.swiglu_product, &c.mlp_swiglu());
+    ck.cmp("22. mlp down_proj", &tr.mlp.down_proj, &c.mlp_down_proj());
+    ck.cmp("23. mlp output", &tr.mlp.down_proj, &c.mlp());
+    ck.cmp("24. layer output (both residuals)", &tr.out, &c.layer_out());
+
+    Ok((ck, tr))
+}
+
+fn print_checks(ck: &Checker<'_>) {
+    for c in &ck.checks {
+        if c.missing {
+            println!("   {:<44} (golden missing)", c.label);
+        } else {
+            println!(
+                "   {:<44} abs={:<11.3e} rel={:<11.3e} {}",
+                c.label,
+                c.abs,
+                c.rel,
+                if c.ok { "ok" } else { "FAIL" }
+            );
+        }
     }
-    Ok(v)
+}
+
+/// One row of the multi-layer table.
+struct Row {
+    layer: usize,
+    ltype: String,
+    note: String,
+    worst_label: String,
+    worst_abs: f32,
+    /// Error on the layer's own output. This is the number that would accumulate
+    /// along a chain, so the isolated and chained tables can be compared directly.
+    out_abs: f32,
+    failed: usize,
+    ok: bool,
+    skipped: bool,
+}
+
+/// Pull the label and error of a check by its numeric prefix.
+fn pick(ck: &Checker<'_>, prefix: &str) -> (String, f32) {
+    ck.checks
+        .iter()
+        .find(|c| c.label.starts_with(prefix))
+        .map(|c| (c.label.clone(), c.abs))
+        .unwrap_or_default()
+}
+
+fn print_table(rows: &[Row]) {
+    println!(
+        "   {:<5} {:<17} {:<34} {:>10} {:>10}",
+        "layer", "type", "first failing / worst check", "abs", "layer-out"
+    );
+    for r in rows {
+        if r.skipped {
+            println!("   {:<5} {:<17} {}", r.layer, r.ltype, r.note);
+            continue;
+        }
+        println!(
+            "   {:<5} {:<17} {:<34} {:>10.3e} {:>10.3e}  {}",
+            r.layer,
+            r.ltype,
+            r.worst_label,
+            r.worst_abs,
+            r.out_abs,
+            if r.ok { "ok".to_string() } else { format!("FAIL ({} checks)", r.failed) }
+        );
+    }
 }
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
+    let flag = |name: &str| args.iter().any(|a| a == name);
+    let val = |name: &str| -> Option<String> {
+        args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)).cloned()
+    };
+
     let Some(dir) = args.iter().skip(1).find(|a| !a.starts_with("--")) else {
-        eprintln!("usage: gdncheck <bundle> [--layer N]");
+        eprintln!("usage: gdncheck <bundle> [--layer N] [--chain] [--verbose]");
         return ExitCode::from(2);
     };
-    let layer: usize = args
-        .iter()
-        .position(|a| a == "--layer")
-        .and_then(|i| args.get(i + 1))
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0);
+    let verbose = flag("--verbose");
+    let chain = flag("--chain");
+    let only: Option<usize> = val("--layer").and_then(|s| s.parse().ok());
 
     let b = match Bundle::open(dir) {
         Ok(b) => b,
@@ -96,348 +270,244 @@ fn main() -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-
-    let p = format!("model__layers__{layer}__");
-    let attn = format!("{p}linear_attn__");
-
-    // Shapes come from the bundle rather than being hardcoded, so the same
-    // binary works for any layer.
-    // The block's *input*, not the layernorm's output. For layer 0 that is the
-    // embedding table's output. For layers > 0 it would be the previous layer's
-    // residual stream, which the bundle does not capture (only submodule outputs
-    // are hooked, and the decoder layer's own output is not among them), so an
-    // explicit override is required.
-    let input_name = args
-        .iter()
-        .position(|a| a == "--input")
-        .and_then(|i| args.get(i + 1))
-        .cloned()
-        .unwrap_or_else(|| {
-            if layer == 0 {
-                "model__embed_tokens".to_string()
-            } else {
-                String::new()
-            }
-        });
-    if input_name.is_empty() {
-        eprintln!(
-            "layer {layer} needs an explicit --input <tensor>; the bundle does not \
-             capture a decoder layer's residual-stream output"
-        );
-        return ExitCode::FAILURE;
-    }
-    let g_in = match b.read(&input_name) {
-        Ok(v) => v,
+    let m = match loader::load_model(&b) {
+        Ok(m) => m,
         Err(e) => {
-            eprintln!("cannot read {input_name}: {e}");
+            eprintln!("error: {e}");
             return ExitCode::FAILURE;
         }
     };
-    let shape_of = |name: &str| -> Vec<usize> {
-        b.entry(name).map(|e| e.shape.clone()).unwrap_or_default()
-    };
-    let inorm_shape = shape_of(&format!("{p}input_layernorm"));
-    let qkv_shape = shape_of(&format!("{attn}in_proj_qkv"));
-    let z_shape = shape_of(&format!("{attn}in_proj_z"));
-    let b_shape = shape_of(&format!("{attn}in_proj_b"));
-    let conv_shape = shape_of(&format!("{attn}conv1d__weight"));
-    let q_shape = shape_of(&format!("delta_torch_chunk_gated_delta_rule_{layer}__q"));
 
-    if inorm_shape.len() != 3 || qkv_shape.len() != 3 {
-        eprintln!("unexpected shapes: input_layernorm {inorm_shape:?}, in_proj_qkv {qkv_shape:?}");
-        return ExitCode::FAILURE;
-    }
-    let (b_sz, t_sz, hidden) = (inorm_shape[0], inorm_shape[1], inorm_shape[2]);
-    let conv_dim = qkv_shape[2];
-    let value_dim = z_shape[2];
-    let num_v_heads = b_shape[2];
-    let head_v_dim = shape_of(&format!("{attn}norm__weight")).first().copied().unwrap_or(0);
-    // Post-GQA `q` is `[B, T, num_v_heads, head_k_dim]`: repeat_interleave only
-    // duplicates heads, so the trailing dim is still head_k_dim.
-    let head_k_dim = *q_shape.last().unwrap_or(&0);
-    // conv_dim = 2*key_dim + value_dim, and key_dim = num_k_heads * head_k_dim.
-    let key_dim = conv_dim.saturating_sub(value_dim) / 2;
-    let num_k_heads = key_dim.checked_div(head_k_dim).unwrap_or(0);
-
-    if head_v_dim == 0
-        || head_k_dim == 0
-        || num_k_heads == 0
-        || num_v_heads == 0
-        || value_dim != num_v_heads * head_v_dim
-        || key_dim != num_k_heads * head_k_dim
-        || conv_dim != 2 * key_dim + value_dim
-    {
-        eprintln!(
-            "derived sizes are inconsistent:\n  conv_dim={conv_dim} value_dim={value_dim}\n  \
-             num_k_heads={num_k_heads} num_v_heads={num_v_heads}\n  \
-             head_k_dim={head_k_dim} head_v_dim={head_v_dim}\n  q_shape={q_shape:?} b_shape={b_shape:?}"
-        );
-        return ExitCode::FAILURE;
-    }
-    if num_v_heads % num_k_heads != 0 {
-        eprintln!("num_v_heads ({num_v_heads}) is not a multiple of num_k_heads ({num_k_heads})");
-        return ExitCode::FAILURE;
-    }
-
-    let cfg = GdnConfig {
-        hidden,
-        num_k_heads,
-        num_v_heads,
-        head_k_dim,
-        head_v_dim,
-        conv_kernel: conv_shape.last().copied().unwrap_or(4),
-        eps: 1e-6,
-    };
-
-    println!("== gated delta net vs {}", b.root.display());
-    println!("   layer {layer}   B={b_sz} T={t_sz} hidden={hidden}");
-    println!("   block input: {input_name}");
+    let (lin, full) = m.counts();
+    println!("== qwen35 decoder stack vs {}", b.root.display());
     println!(
-        "   k_heads={} v_heads={} head_k={} head_v={} conv_k={} ratio={}",
-        cfg.num_k_heads,
-        cfg.num_v_heads,
-        cfg.head_k_dim,
-        cfg.head_v_dim,
-        cfg.conv_kernel,
-        cfg.kv_ratio()
+        "   B={} T={} hidden={} intermediate={} layers={} ({} linear_attention, {} full_attention)",
+        m.b, m.t, m.hidden, m.intermediate, m.num_layers, lin, full
     );
-    println!("   conv_dim={conv_dim} value_dim={value_dim}");
+    println!(
+        "   eps={:e} ssm_gain={} k_heads={} v_heads={} head_k={} head_v={} conv_k={}",
+        m.eps,
+        m.ssm_gain,
+        m.gdn.num_k_heads,
+        m.gdn.num_v_heads,
+        m.gdn.head_k_dim,
+        m.gdn.head_v_dim,
+        m.gdn.conv_kernel
+    );
     println!("   tolerance {TOL:.1e}");
     println!();
 
-    if !cfg.num_v_heads.is_multiple_of(cfg.num_k_heads.max(1)) {
-        eprintln!("   derived head counts are inconsistent; aborting");
-        return ExitCode::FAILURE;
-    }
+    let mut rows: Vec<Row> = Vec::new();
+    let mut any_failed = false;
 
-    let conv_raw = match b.read(&format!("{attn}conv1d__weight")) {
-        Ok(v) => v,
-        Err(e) => {
-            eprintln!("conv1d weight: {e}");
-            return ExitCode::FAILURE;
+    // ---- single layer, full detail -----------------------------------------
+    if let Some(layer) = only {
+        if layer >= m.num_layers {
+            eprintln!("layer {layer} is out of range (0..{})", m.num_layers);
+            return ExitCode::from(2);
         }
-    };
-
-    let weights = GdnWeights {
-        input_layernorm: match w(&b, &format!("{p}input_layernorm__weight"), hidden) {
+        if !m.is_linear(layer) {
+            println!("   layer {layer} is {} — not implemented", m.layer_type(layer));
+            println!();
+            println!("   RESULT: SKIPPED");
+            return ExitCode::from(3);
+        }
+        let input_name = m.input_name(layer);
+        let input = match b.read(&input_name) {
             Ok(v) => v,
             Err(e) => {
-                eprintln!("{e}");
+                eprintln!("cannot read {input_name}: {e}");
                 return ExitCode::FAILURE;
-            }
-        },
-        in_proj_qkv: match w(&b, &format!("{attn}in_proj_qkv__weight"), conv_dim * hidden) {
-            Ok(v) => v,
-            Err(e) => {
-                eprintln!("{e}");
-                return ExitCode::FAILURE;
-            }
-        },
-        in_proj_z: match w(&b, &format!("{attn}in_proj_z__weight"), value_dim * hidden) {
-            Ok(v) => v,
-            Err(e) => {
-                eprintln!("{e}");
-                return ExitCode::FAILURE;
-            }
-        },
-        in_proj_b: match w(&b, &format!("{attn}in_proj_b__weight"), num_v_heads * hidden) {
-            Ok(v) => v,
-            Err(e) => {
-                eprintln!("{e}");
-                return ExitCode::FAILURE;
-            }
-        },
-        in_proj_a: match w(&b, &format!("{attn}in_proj_a__weight"), num_v_heads * hidden) {
-            Ok(v) => v,
-            Err(e) => {
-                eprintln!("{e}");
-                return ExitCode::FAILURE;
-            }
-        },
-        conv1d: conv_raw,
-        a_log: match w(&b, &format!("{attn}A_log"), num_v_heads) {
-            Ok(v) => v,
-            Err(e) => {
-                eprintln!("{e}");
-                return ExitCode::FAILURE;
-            }
-        },
-        dt_bias: match w(&b, &format!("{attn}dt_bias"), num_v_heads) {
-            Ok(v) => v,
-            Err(e) => {
-                eprintln!("{e}");
-                return ExitCode::FAILURE;
-            }
-        },
-        norm: match w(&b, &format!("{attn}norm__weight"), head_v_dim) {
-            Ok(v) => v,
-            Err(e) => {
-                eprintln!("{e}");
-                return ExitCode::FAILURE;
-            }
-        },
-        out_proj: match w(&b, &format!("{attn}out_proj__weight"), hidden * value_dim) {
-            Ok(v) => v,
-            Err(e) => {
-                eprintln!("{e}");
-                return ExitCode::FAILURE;
-            }
-        },
-    };
-
-    let trace = forward(&cfg, &weights, &g_in, b_sz, t_sz);
-
-    // ---- MLP + the two residuals -------------------------------------------
-    let intermediate = shape_of(&format!("{p}mlp__gate_proj"))
-        .last()
-        .copied()
-        .unwrap_or(0);
-    if intermediate == 0 {
-        eprintln!("cannot derive intermediate_size from {p}mlp__gate_proj");
-        return ExitCode::FAILURE;
-    }
-    let layer_weights = LayerWeights {
-        input_layernorm: weights.input_layernorm.clone(),
-        post_attention_layernorm: match w(&b, &format!("{p}post_attention_layernorm__weight"), hidden) {
-            Ok(v) => v,
-            Err(e) => {
-                eprintln!("{e}");
-                return ExitCode::FAILURE;
-            }
-        },
-        mlp: MlpWeights {
-            gate_proj: match w(&b, &format!("{p}mlp__gate_proj__weight"), intermediate * hidden) {
-                Ok(v) => v,
-                Err(e) => {
-                    eprintln!("{e}");
-                    return ExitCode::FAILURE;
-                }
-            },
-            up_proj: match w(&b, &format!("{p}mlp__up_proj__weight"), intermediate * hidden) {
-                Ok(v) => v,
-                Err(e) => {
-                    eprintln!("{e}");
-                    return ExitCode::FAILURE;
-                }
-            },
-            down_proj: match w(&b, &format!("{p}mlp__down_proj__weight"), hidden * intermediate) {
-                Ok(v) => v,
-                Err(e) => {
-                    eprintln!("{e}");
-                    return ExitCode::FAILURE;
-                }
-            },
-        },
-    };
-    let ltrace = layer_forward_from_mixer(
-        &layer_weights,
-        &trace.out_proj,
-        &g_in,
-        &trace.input_layernorm,
-        trace.clone(),
-        b_sz * t_sz,
-    );
-
-    let mut r = Report { checks: 0, failed: 0 };
-    let get = |n: &str| b.read(n).ok();
-
-    macro_rules! cmp {
-        ($label:expr, $mine:expr, $golden_name:expr) => {
-            match get($golden_name) {
-                Some(g) => r.step($label, &$mine, &g),
-                None => println!("   {:<44} (golden missing)", $label),
             }
         };
+        println!("   layer {layer}   input: {input_name}");
+        match verify_layer(&b, &m, layer, &input) {
+            Ok((ck, _)) => {
+                print_checks(&ck);
+                let failed = ck.failed();
+                any_failed |= failed > 0;
+                println!();
+                if failed == 0 {
+                    println!("   RESULT: PASS ({} checks)", ck.checks.len());
+                } else {
+                    println!("   RESULT: FAIL ({failed} of {} checks)", ck.checks.len());
+                }
+            }
+            Err(e) => {
+                eprintln!("   layer {layer}: {e}");
+                return ExitCode::FAILURE;
+            }
+        }
+        return if any_failed { ExitCode::FAILURE } else { ExitCode::SUCCESS };
     }
 
-    cmp!("1. input_layernorm", trace.input_layernorm, &format!("{p}input_layernorm"));
-    cmp!("2. in_proj_qkv", trace.in_proj_qkv, &format!("{attn}in_proj_qkv"));
-    cmp!(
-        "3. conv input (channels-first)",
-        trace.conv_in,
-        &format!("causal_conv1d_fn_call{layer}_in")
-    );
-    cmp!(
-        "4. conv + silu",
-        trace.conv_out,
-        &format!("causal_conv1d_fn_call{layer}_out")
-    );
-    cmp!("5. in_proj_z", trace.in_proj_z, &format!("{attn}in_proj_z"));
-    cmp!("6. in_proj_b", trace.in_proj_b, &format!("{attn}in_proj_b"));
-    cmp!("7. in_proj_a", trace.in_proj_a, &format!("{attn}in_proj_a"));
-    cmp!(
-        "8. q (post-GQA)",
-        trace.q,
-        &format!("delta_torch_chunk_gated_delta_rule_{layer}__q")
-    );
-    cmp!(
-        "9. k (post-GQA)",
-        trace.k,
-        &format!("delta_torch_chunk_gated_delta_rule_{layer}__k")
-    );
-    cmp!(
-        "10. v",
-        trace.v,
-        &format!("delta_torch_chunk_gated_delta_rule_{layer}__v")
-    );
-    cmp!(
-        "11. g (decay)",
-        trace.g,
-        &format!("delta_torch_chunk_gated_delta_rule_{layer}__g")
-    );
-    cmp!(
-        "12. beta (gate)",
-        trace.beta,
-        &format!("delta_torch_chunk_gated_delta_rule_{layer}__beta")
-    );
-    cmp!(
-        "13. delta rule out",
-        trace.delta_out,
-        &format!("delta_torch_chunk_gated_delta_rule_{layer}__out")
-    );
-    cmp!(
-        "14. delta rule state",
-        trace.delta_state,
-        &format!("delta_torch_chunk_gated_delta_rule_{layer}__state")
-    );
-    cmp!("15. gated norm", trace.norm, &format!("{attn}norm"));
-    cmp!("16. out_proj", trace.out_proj, &format!("{attn}out_proj"));
-    cmp!("17. block output", trace.out_proj, &format!("{p}linear_attn"));
-    cmp!(
-        "18. post_attention_layernorm",
-        ltrace.post_attention_layernorm,
-        &format!("{p}post_attention_layernorm")
-    );
-    cmp!(
-        "19. mlp gate_proj",
-        ltrace.mlp.gate_proj,
-        &format!("{p}mlp__gate_proj")
-    );
-    cmp!("20. mlp up_proj", ltrace.mlp.up_proj, &format!("{p}mlp__up_proj"));
-    cmp!(
-        "21. mlp swiglu product",
-        ltrace.mlp.swiglu_product,
-        &format!("{p}mlp__swiglu_product")
-    );
-    cmp!(
-        "22. mlp down_proj",
-        ltrace.mlp.down_proj,
-        &format!("{p}mlp__down_proj")
-    );
-    cmp!("23. mlp output", ltrace.mlp.down_proj, &format!("{p}mlp"));
-    // The decoder layer's own name has no trailing separator: `model__layers__0`.
-    cmp!(
-        "24. layer output (both residuals)",
-        ltrace.out,
-        format!("model__layers__{layer}").as_str()
-    );
+    // ---- isolated: every layer against its own recorded input ---------------
+    println!("   mode: isolated (each layer fed the golden input recorded for it)");
+    for layer in 0..m.num_layers {
+        if !m.is_linear(layer) {
+            rows.push(Row {
+                layer,
+                ltype: m.layer_type(layer).to_string(),
+                note: "— not implemented (full_attention) —".to_string(),
+                worst_label: String::new(),
+                worst_abs: 0.0,
+                out_abs: 0.0,
+                failed: 0,
+                ok: true,
+                skipped: true,
+            });
+            continue;
+        }
+        let input_name = m.input_name(layer);
+        let input = match b.read(&input_name) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("   layer {layer}: cannot read {input_name}: {e}");
+                any_failed = true;
+                continue;
+            }
+        };
+        match verify_layer(&b, &m, layer, &input) {
+            Ok((ck, _)) => {
+                let failed = ck.failed();
+                any_failed |= failed > 0;
+                // Report the first divergence: the earliest operator that is wrong.
+                let (label, abs) = match ck.first_failure() {
+                    Some(f) => (format!("FAIL {}", f.label), f.abs),
+                    None => {
+                        let worst = ck
+                            .checks
+                            .iter()
+                            .filter(|c| !c.missing)
+                            .max_by(|x, y| x.abs.partial_cmp(&y.abs).unwrap());
+                        (
+                            format!(
+                                "worst: {}",
+                                worst.map(|c| c.label.as_str()).unwrap_or("-")
+                            ),
+                            worst.map(|c| c.abs).unwrap_or(0.0),
+                        )
+                    }
+                };
+                let (_, out_abs) = pick(&ck, "24.");
+                if verbose {
+                    println!();
+                    println!("   ---- layer {layer} ({}) ----", m.layer_type(layer));
+                    print_checks(&ck);
+                }
+                rows.push(Row {
+                    layer,
+                    ltype: m.layer_type(layer).to_string(),
+                    note: String::new(),
+                    worst_label: label,
+                    worst_abs: abs,
+                    out_abs,
+                    failed,
+                    ok: failed == 0,
+                    skipped: false,
+                });
+            }
+            Err(e) => {
+                eprintln!("   layer {layer}: {e}");
+                any_failed = true;
+            }
+        }
+    }
+    println!();
+    print_table(&rows);
+    let isolated_out: Vec<(usize, f32)> =
+        rows.iter().filter(|r| !r.skipped).map(|r| (r.layer, r.out_abs)).collect();
+
+    // ---- chained: each layer's own output feeds the next -------------------
+    if chain {
+        println!();
+        println!("   mode: chained (each layer's own output feeds the next)");
+        println!("   runs: {:?}", m.runs());
+        println!();
+        let mut chain_rows: Vec<Row> = Vec::new();
+        for run in m.runs() {
+            let start = run[0];
+            let first_input = m.input_name(start);
+            let mut input = match b.read(&first_input) {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("   run {run:?}: cannot read {first_input}: {e}");
+                    any_failed = true;
+                    continue;
+                }
+            };
+            for &layer in &run {
+                match verify_layer(&b, &m, layer, &input) {
+                    Ok((ck, tr)) => {
+                        let failed = ck.failed();
+                        any_failed |= failed > 0;
+                        let (label, abs) = match ck.first_failure() {
+                            Some(f) => (format!("FAIL {}", f.label), f.abs),
+                            None => {
+                                let worst = ck
+                                    .checks
+                                    .iter()
+                                    .filter(|c| !c.missing)
+                                    .max_by(|x, y| x.abs.partial_cmp(&y.abs).unwrap());
+                                (
+                                    format!(
+                                        "worst: {}",
+                                        worst.map(|c| c.label.as_str()).unwrap_or("-")
+                                    ),
+                                    worst.map(|c| c.abs).unwrap_or(0.0),
+                                )
+                            }
+                        };
+                        let (_, out_abs) = pick(&ck, "24.");
+                        chain_rows.push(Row {
+                            layer,
+                            ltype: m.layer_type(layer).to_string(),
+                            note: String::new(),
+                            worst_label: label,
+                            worst_abs: abs,
+                            out_abs,
+                            failed,
+                            ok: failed == 0,
+                            skipped: false,
+                        });
+                        // Feed our own output forward, not the golden one.
+                        input = tr.out;
+                    }
+                    Err(e) => {
+                        eprintln!("   layer {layer}: {e}");
+                        any_failed = true;
+                        break;
+                    }
+                }
+            }
+        }
+        print_table(&chain_rows);
+
+        // The question the chained mode exists to answer: does feeding our own
+        // output forward make the error grow? Compare the layer-output error
+        // against the isolated run, which is fed the reference's own input.
+        println!();
+        println!("   layer-output error, chained vs isolated (the drift check)");
+        for r in &chain_rows {
+            let base = isolated_out
+                .iter()
+                .find(|(l, _)| *l == r.layer)
+                .map(|(_, a)| *a)
+                .unwrap_or(f32::NAN);
+            let ratio = if base > 0.0 { r.out_abs / base } else { f32::NAN };
+            println!(
+                "     layer {:<3} chained={:<11.3e} isolated={:<11.3e} ratio={:.2}",
+                r.layer, r.out_abs, base, ratio
+            );
+        }
+    }
 
     println!();
-    if r.failed == 0 {
-        println!("   RESULT: PASS ({} checks)", r.checks);
-        ExitCode::SUCCESS
-    } else {
-        println!("   RESULT: FAIL ({} of {} checks)", r.failed, r.checks);
+    if any_failed {
+        println!("   RESULT: FAIL");
         ExitCode::FAILURE
+    } else {
+        println!("   RESULT: PASS ({} layers)", rows.iter().filter(|r| !r.skipped).count());
+        ExitCode::SUCCESS
     }
 }

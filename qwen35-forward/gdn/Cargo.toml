@@ -12,3 +12,4 @@ path = "src/main.rs"
 [dependencies]
 goldenbundle = { path = "../bundle" }
 deltarule = { path = "../delta" }
+serde_json = "1"
