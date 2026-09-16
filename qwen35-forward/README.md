@@ -42,9 +42,16 @@ gdn/                 the whole model
   loader.rs          golden bundle -> weights, and the layer -> capture-index mapping
   safetensors.rs     a self-contained safetensors reader (bf16/f16/f32)
   real.rs            a real checkpoint -> weights, with config cross-checks
+  unicode_gc.rs      general categories and NFC
+  unicode_tables.rs  GENERATED Unicode tables (see tools/)
+  tokenizer.rs       byte-level BPE, checked against a committed corpus
   gdncheck <bundle>  [--layer N] [--chain] [--model] [--verbose]   (golden)
-  qwenrun  <model-dir> [--prompt ids] [--tokens N] [--compare FILE]  (real)
+  qwenrun  <model-dir> [--text STR | --prompt ids] [--tokens N] [--compare FILE]
+  tokcheck <model-dir> <corpus.json>                                (tokenizer)
+tok_corpus/          tokenizer conformance corpora, one per shipped pattern
 tools/ref_qwen35.py  the transformers reference: logits, per-layer dumps, greedy
+tools/gen_unicode_tables.py   regenerates unicode_tables.rs
+tools/make_tok_corpus.py      regenerates tok_corpus/*.json
 golden_tiny/         committed bundle (gain=1.0, for per-tensor comparison)
 golden_sensitive/    committed bundle (gain=300, for token-trace comparison)
 ```
@@ -691,6 +698,158 @@ would make results irreproducible). This is a correctness-first implementation: 
 flops are roughly 1.6 GFLOP/token, so there is a lot of headroom. Caching the
 recurrent and KV state is the obvious next step and removes the quadratic
 re-processing, but it changes what is *stored*, not what is *computed*.
+
+## Step seven: the tokenizer
+
+`qwenrun --text` now takes text and returns text:
+
+```bash
+./target/release/qwenrun /path/to/Qwen3.5-0.8B --text "The capital of France is" --tokens 8
+./target/release/tokcheck /path/to/Qwen3.5-0.8B ../tok_corpus/auto.json
+```
+
+```
+   -> 5 tokens [760, 6511, 314, 9338, 369]
+   generated text: " Paris.\nThe capital of France is"
+   full text:      "The capital of France is Paris.\nThe capital of France is"
+```
+
+The prompt tokenizes identically to the reference, the generated ids are identical,
+and so is the decoded text. That closes the loop: text in, text out.
+
+### What it is
+
+`Qwen2Tokenizer`: byte-level BPE, `vocab` 248044, `merges` 247587, 26 added tokens, NFC
+normalizer, byte-level decoder.
+
+```text
+text
+  -> NFC                                     the normalizer
+  -> split out added tokens                  they never reach the regex or the BPE
+  -> split each remaining run                the Qwen2 pre-tokenizer
+  -> UTF-8 bytes -> byte-level characters    the reason there is no UNK
+  -> BPE merges, lowest rank first
+  -> ids
+```
+
+Byte-level is why there is no unknown token: every byte is mapped to a printable
+character before the BPE sees it, so all 256 are in the vocabulary. `"Hello world"`
+becomes `["Hello", "Ġworld"]` (`Ġ` is byte `0x20`), `"a\n\nb"` becomes
+`["a", "ĊĊ", "b"]`, and `"你好"` becomes six byte-level characters because each CJK
+codepoint is three UTF-8 bytes. The vocabulary contains no CJK character at all.
+
+### The pre-tokenizer is a regex, recovered by observation
+
+```text
+1  (?i:'s|'t|'re|'ve|'m|'ll|'d)      contractions, case-insensitive
+2  [^\r\n\p{L}\p{N}]?[\p{L}\p{M}]+   one optional non-letter/digit/newline, then letters
+3  \p{N}                              a single number-class character
+4   ?[^\s\p{L}\p{M}\p{N}]+[\r\n]*     optional space, symbol run, trailing newlines
+5  \s*[\r\n]+                        whitespace ending in newlines
+6  \s+(?!\S)                          whitespace not immediately before a non-space
+7  \s+                                 whitespace
+```
+
+Alternatives are tried **in order**, first match wins, with greedy quantifiers that
+backtrack. Three cases pin down what matters:
+
+* `"Hello world"` -> `["Hello", "Ġworld"]`. The space belongs to alternative 2 via its
+  optional prefix; a separate `"Ġ"` piece would be a different token sequence.
+* `"a+b"` is 2 tokens but `"a++b"` is 3. Alternative 2's prefix takes **exactly one**
+  character, so `"+b"` is one piece while `"++"` falls through to alternative 4.
+* `"  leading"` -> `["Ġ", "Ġleading"]`. Alternative 6 is `\s+(?!\S)`: greedy `\s+`
+  takes both spaces, the lookahead fails because `l` follows, and the matcher backtracks
+  to one space -- where the next character *is* a space and the lookahead succeeds. So it
+  means "the whitespace run minus its last character, unless the run ends the input".
+
+That lookahead is why this is a hand-written scanner: the `regex` crate has no
+lookaround. It is also why the pre-tokenizer cannot be validated by comparing regex
+strings, and is instead validated by comparing token ids.
+
+### The checkpoint ships two tokenizers that disagree
+
+This was the interesting find. Nine corpus cases failed on combining marks. The
+pre-tokenizer pieces looked right, the initial BPE symbols were identical, and
+`\p{M}` is in the pattern. Taking it apart:
+
+```text
+Split alone, pattern from tokenizer.json        "q\u0301" -> ['q́']       (1 piece)
+Sequence[Split, ByteLevel(use_regex=false)]     "q\u0301" -> ['qÌģ']      (1 piece)
+the real tokenizer, via AutoTokenizer           "q\u0301" -> ['q','Ìģ']   (2 pieces)
+```
+
+So `AutoTokenizer` is not using `tokenizer.json`'s pre-tokenizer at all. Its
+`tokenizer_config.json` says `"tokenizer_class": "Qwen2Tokenizer"`, and transformers
+honours that by instantiating the Qwen2 class, which **rebuilds the pre-tokenizer from
+its own hardcoded pattern** -- and that pattern is not the same:
+
+| source | alternative 2 | `\p{M}` |
+|---|---|---|
+| `tokenizer.json` | `[^\r\n\p{L}\p{N}]?[\p{L}\p{M}]+` | yes |
+| `transformers/models/qwen3_5/tokenization_qwen3_5.py` | same | yes |
+| `transformers/models/qwen2/tokenization_qwen2.py` | `[^\r\n\p{L}\p{N}]?\p{L}+` | **no** |
+
+Both are shipped with the same weights, and they disagree wherever a combining mark
+follows a letter: with `\p{M}` the mark joins the letter run, without it the mark falls
+through to the symbol rule and becomes its own piece.
+
+**Both are implemented and both are verified.** `PRETOKENIZE_REGEX_WITH_MARKS` and
+`PRETOKENIZE_REGEX_NO_MARKS` are the two accepted patterns; a checkpoint's pattern must
+match one of them exactly, and a near-miss is refused rather than tokenized wrong.
+`Tokenizer::from_model_dir` reads `tokenizer_class` and picks what `AutoTokenizer` would.
+Two corpora are committed, one per variant, and `tokcheck` takes the variant from the
+corpus:
+
+```
+   auto (AutoTokenizer, no-marks pattern)     RESULT: PASS (167 cases, 614 ids)
+   file (tokenizer.json, with-marks pattern)  RESULT: PASS (167 cases, 609 ids)
+```
+
+**The two differ on 2 of 167 cases** -- exactly the two that contain a combining mark
+after a letter. So this is a real fork, not a rounding difference, and it is now measured.
+
+### NFC, and why `decode(encode(x)) != x`
+
+The normalizer is NFC, so a decomposed input comes back composed: `"e\u0301"` encodes to
+the same single token as `"é"`, and the corpus records 22 such round-trip differences.
+That is the reference's behaviour, not an artefact.
+
+NFC needs decomposition, canonical ordering and composition, none of which `core`
+provides, so `tools/gen_unicode_tables.py` generates `gdn/src/unicode_tables.rs` from
+Python's `unicodedata` (Unicode 13.0.0, recorded in the file). Generated rather than
+pulled from a crate so the build stays offline, and inspectable:
+
+| table | entries |
+|---|---|
+| `\p{L}` / `\p{M}` / `\p{N}` ranges | 622 + 290 + 133 |
+| canonical decomposition (non-Hangul) | 2061 |
+| composition pairs | 941 |
+| combining classes | 872 |
+
+Hangul's 11172 syllables are excluded and handled arithmetically -- but that created a
+bug worth recording. The composition table is *derived from* the decomposition table, so
+leaving Hangul out of one silently left it out of the other: syllables decomposed and
+then failed to recompose, turning `"한"` into three jamo and 9 BPE tokens instead of 1.
+A round-trip test over three jamo caught it.
+
+Composition exclusions (`U+0958`, `U+09DC`, `U+2ADC`, `U+0344`) are handled by deriving
+the composition table with the rule "NFC of the decomposition returns the character",
+which folds in the exclusion list without reading it. Those four are the witnesses in a
+test: dropping the rule would make all four recompose and the test fail.
+
+### Verification
+
+| check | result |
+|---|---|
+| `tokcheck`, AutoTokenizer variant | PASS, 167 cases / 614 ids |
+| `tokcheck`, `tokenizer.json` variant | PASS, 167 cases / 609 ids |
+| per-case decode round-trip | matches the reference |
+| idempotence under re-encoding | holds for all 167 |
+| 62 unit tests | pass |
+
+Ids are compared, not regexes. A separate stability check re-encodes the decoded text and
+requires the same ids, which catches an implementation that is self-consistent but
+segments differently and happens to decode to the same string.
 
 ## The two committed bundles
 

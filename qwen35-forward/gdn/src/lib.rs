@@ -44,6 +44,9 @@ pub mod loader;
 pub mod model;
 pub mod real;
 pub mod safetensors;
+pub mod tokenizer;
+pub mod unicode_gc;
+pub mod unicode_tables;
 
 /// Default RMSNorm epsilon. The reference reads it from `config.rms_norm_eps`,
 /// which is `1e-6` for every qwen35 configuration checked; `GdnConfig::eps`

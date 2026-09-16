@@ -1,0 +1,2568 @@
+{
+ "mode": "auto (AutoTokenizer, no-marks pattern)",
+ "generated_by": "tools/make_tok_corpus.py",
+ "cases": [
+  {
+   "text": "",
+   "ids": [],
+   "tokens": [],
+   "decoded": ""
+  },
+  {
+   "text": " ",
+   "ids": [
+    220
+   ],
+   "tokens": [
+    "Ġ"
+   ],
+   "decoded": " "
+  },
+  {
+   "text": "  ",
+   "ids": [
+    256
+   ],
+   "tokens": [
+    "ĠĠ"
+   ],
+   "decoded": "  "
+  },
+  {
+   "text": "\n",
+   "ids": [
+    198
+   ],
+   "tokens": [
+    "Ċ"
+   ],
+   "decoded": "\n"
+  },
+  {
+   "text": "\t",
+   "ids": [
+    197
+   ],
+   "tokens": [
+    "ĉ"
+   ],
+   "decoded": "\t"
+  },
+  {
+   "text": "a",
+   "ids": [
+    64
+   ],
+   "tokens": [
+    "a"
+   ],
+   "decoded": "a"
+  },
+  {
+   "text": ".",
+   "ids": [
+    13
+   ],
+   "tokens": [
+    "."
+   ],
+   "decoded": "."
+  },
+  {
+   "text": "0",
+   "ids": [
+    15
+   ],
+   "tokens": [
+    "0"
+   ],
+   "decoded": "0"
+  },
+  {
+   "text": "'",
+   "ids": [
+    6
+   ],
+   "tokens": [
+    "'"
+   ],
+   "decoded": "'"
+  },
+  {
+   "text": "|",
+   "ids": [
+    91
+   ],
+   "tokens": [
+    "|"
+   ],
+   "decoded": "|"
+  },
+  {
+   "text": "Hello world",
+   "ids": [
+    9419,
+    1814
+   ],
+   "tokens": [
+    "Hello",
+    "Ġworld"
+   ],
+   "decoded": "Hello world"
+  },
+  {
+   "text": "The quick brown fox jumps over the lazy dog.",
+   "ids": [
+    760,
+    3841,
+    13477,
+    37550,
+    33075,
+    888,
+    279,
+    15217,
+    5388,
+    13
+   ],
+   "tokens": [
+    "The",
+    "Ġquick",
+    "Ġbrown",
+    "Ġfox",
+    "Ġjumps",
+    "Ġover",
+    "Ġthe",
+    "Ġlazy",
+    "Ġdog",
+    "."
+   ],
+   "decoded": "The quick brown fox jumps over the lazy dog."
+  },
+  {
+   "text": "one",
+   "ids": [
+    588
+   ],
+   "tokens": [
+    "one"
+   ],
+   "decoded": "one"
+  },
+  {
+   "text": "one two three four five",
+   "ids": [
+    588,
+    1330,
+    2250,
+    2943,
+    4097
+   ],
+   "tokens": [
+    "one",
+    "Ġtwo",
+    "Ġthree",
+    "Ġfour",
+    "Ġfive"
+   ],
+   "decoded": "one two three four five"
+  },
+  {
+   "text": " leading",
+   "ids": [
+    6187
+   ],
+   "tokens": [
+    "Ġleading"
+   ],
+   "decoded": " leading"
+  },
+  {
+   "text": "  leading",
+   "ids": [
+    220,
+    6187
+   ],
+   "tokens": [
+    "Ġ",
+    "Ġleading"
+   ],
+   "decoded": "  leading"
+  },
+  {
+   "text": "leading ",
+   "ids": [
+    20028,
+    220
+   ],
+   "tokens": [
+    "leading",
+    "Ġ"
+   ],
+   "decoded": "leading "
+  },
+  {
+   "text": "leading  ",
+   "ids": [
+    20028,
+    256
+   ],
+   "tokens": [
+    "leading",
+    "ĠĠ"
+   ],
+   "decoded": "leading  "
+  },
+  {
+   "text": "  both  ",
+   "ids": [
+    220,
+    2107,
+    256
+   ],
+   "tokens": [
+    "Ġ",
+    "Ġboth",
+    "ĠĠ"
+   ],
+   "decoded": "  both  "
+  },
+  {
+   "text": "a  b",
+   "ids": [
+    64,
+    220,
+    292
+   ],
+   "tokens": [
+    "a",
+    "Ġ",
+    "Ġb"
+   ],
+   "decoded": "a  b"
+  },
+  {
+   "text": "a   b",
+   "ids": [
+    64,
+    256,
+    292
+   ],
+   "tokens": [
+    "a",
+    "ĠĠ",
+    "Ġb"
+   ],
+   "decoded": "a   b"
+  },
+  {
+   "text": "a\tb",
+   "ids": [
+    64,
+    2161
+   ],
+   "tokens": [
+    "a",
+    "ĉb"
+   ],
+   "decoded": "a\tb"
+  },
+  {
+   "text": "a \t b",
+   "ids": [
+    64,
+    6800,
+    292
+   ],
+   "tokens": [
+    "a",
+    "Ġĉ",
+    "Ġb"
+   ],
+   "decoded": "a \t b"
+  },
+  {
+   "text": "\ta",
+   "ids": [
+    10996
+   ],
+   "tokens": [
+    "ĉa"
+   ],
+   "decoded": "\ta"
+  },
+  {
+   "text": "a\t",
+   "ids": [
+    64,
+    197
+   ],
+   "tokens": [
+    "a",
+    "ĉ"
+   ],
+   "decoded": "a\t"
+  },
+  {
+   "text": "a\nb",
+   "ids": [
+    64,
+    198,
+    65
+   ],
+   "tokens": [
+    "a",
+    "Ċ",
+    "b"
+   ],
+   "decoded": "a\nb"
+  },
+  {
+   "text": "a\n\nb",
+   "ids": [
+    64,
+    271,
+    65
+   ],
+   "tokens": [
+    "a",
+    "ĊĊ",
+    "b"
+   ],
+   "decoded": "a\n\nb"
+  },
+  {
+   "text": "a\n\n\nb",
+   "ids": [
+    64,
+    1358,
+    65
+   ],
+   "tokens": [
+    "a",
+    "ĊĊĊ",
+    "b"
+   ],
+   "decoded": "a\n\n\nb"
+  },
+  {
+   "text": "\n\na",
+   "ids": [
+    271,
+    64
+   ],
+   "tokens": [
+    "ĊĊ",
+    "a"
+   ],
+   "decoded": "\n\na"
+  },
+  {
+   "text": "a\r\nb",
+   "ids": [
+    64,
+    317,
+    65
+   ],
+   "tokens": [
+    "a",
+    "čĊ",
+    "b"
+   ],
+   "decoded": "a\r\nb"
+  },
+  {
+   "text": "a\r\n\r\nb",
+   "ids": [
+    64,
+    845,
+    65
+   ],
+   "tokens": [
+    "a",
+    "čĊčĊ",
+    "b"
+   ],
+   "decoded": "a\r\n\r\nb"
+  },
+  {
+   "text": " \n ",
+   "ids": [
+    695,
+    220
+   ],
+   "tokens": [
+    "ĠĊ",
+    "Ġ"
+   ],
+   "decoded": " \n "
+  },
+  {
+   "text": "\t\t",
+   "ids": [
+    297
+   ],
+   "tokens": [
+    "ĉĉ"
+   ],
+   "decoded": "\t\t"
+  },
+  {
+   "text": "a \t\n b",
+   "ids": [
+    64,
+    16957,
+    292
+   ],
+   "tokens": [
+    "a",
+    "ĠĉĊ",
+    "Ġb"
+   ],
+   "decoded": "a \t\n b"
+  },
+  {
+   "text": "don't",
+   "ids": [
+    14572,
+    914
+   ],
+   "tokens": [
+    "don",
+    "'t"
+   ],
+   "decoded": "don't"
+  },
+  {
+   "text": "can't",
+   "ids": [
+    4660,
+    914
+   ],
+   "tokens": [
+    "can",
+    "'t"
+   ],
+   "decoded": "can't"
+  },
+  {
+   "text": "it's",
+   "ids": [
+    275,
+    579
+   ],
+   "tokens": [
+    "it",
+    "'s"
+   ],
+   "decoded": "it's"
+  },
+  {
+   "text": "they're",
+   "ids": [
+    19458,
+    2224
+   ],
+   "tokens": [
+    "they",
+    "'re"
+   ],
+   "decoded": "they're"
+  },
+  {
+   "text": "I've",
+   "ids": [
+    40,
+    2908
+   ],
+   "tokens": [
+    "I",
+    "'ve"
+   ],
+   "decoded": "I've"
+  },
+  {
+   "text": "we'll",
+   "ids": [
+    868,
+    3172
+   ],
+   "tokens": [
+    "we",
+    "'ll"
+   ],
+   "decoded": "we'll"
+  },
+  {
+   "text": "he'd",
+   "ids": [
+    377,
+    4035
+   ],
+   "tokens": [
+    "he",
+    "'d"
+   ],
+   "decoded": "he'd"
+  },
+  {
+   "text": "'s",
+   "ids": [
+    579
+   ],
+   "tokens": [
+    "'s"
+   ],
+   "decoded": "'s"
+  },
+  {
+   "text": "x's",
+   "ids": [
+    87,
+    579
+   ],
+   "tokens": [
+    "x",
+    "'s"
+   ],
+   "decoded": "x's"
+  },
+  {
+   "text": "DON'T",
+   "ids": [
+    81720,
+    16813
+   ],
+   "tokens": [
+    "DON",
+    "'T"
+   ],
+   "decoded": "DON'T"
+  },
+  {
+   "text": "Don't",
+   "ids": [
+    7751,
+    914
+   ],
+   "tokens": [
+    "Don",
+    "'t"
+   ],
+   "decoded": "Don't"
+  },
+  {
+   "text": "rock'n'roll",
+   "ids": [
+    19896,
+    42336,
+    6,
+    1065
+   ],
+   "tokens": [
+    "rock",
+    "'n",
+    "'",
+    "roll"
+   ],
+   "decoded": "rock'n'roll"
+  },
+  {
+   "text": "''",
+   "ids": [
+    4456
+   ],
+   "tokens": [
+    "''"
+   ],
+   "decoded": "''"
+  },
+  {
+   "text": "'''",
+   "ids": [
+    18221
+   ],
+   "tokens": [
+    "'''"
+   ],
+   "decoded": "'''"
+  },
+  {
+   "text": "3.14159",
+   "ids": [
+    18,
+    13,
+    16,
+    19,
+    16,
+    20,
+    24
+   ],
+   "tokens": [
+    "3",
+    ".",
+    "1",
+    "4",
+    "1",
+    "5",
+    "9"
+   ],
+   "decoded": "3.14159"
+  },
+  {
+   "text": "abc123",
+   "ids": [
+    13290,
+    16,
+    17,
+    18
+   ],
+   "tokens": [
+    "abc",
+    "1",
+    "2",
+    "3"
+   ],
+   "decoded": "abc123"
+  },
+  {
+   "text": "123abc",
+   "ids": [
+    16,
+    17,
+    18,
+    13290
+   ],
+   "tokens": [
+    "1",
+    "2",
+    "3",
+    "abc"
+   ],
+   "decoded": "123abc"
+  },
+  {
+   "text": "a1b2c3",
+   "ids": [
+    64,
+    16,
+    65,
+    17,
+    66,
+    18
+   ],
+   "tokens": [
+    "a",
+    "1",
+    "b",
+    "2",
+    "c",
+    "3"
+   ],
+   "decoded": "a1b2c3"
+  },
+  {
+   "text": "2024-01-15",
+   "ids": [
+    17,
+    15,
+    17,
+    19,
+    12,
+    15,
+    16,
+    12,
+    16,
+    20
+   ],
+   "tokens": [
+    "2",
+    "0",
+    "2",
+    "4",
+    "-",
+    "0",
+    "1",
+    "-",
+    "1",
+    "5"
+   ],
+   "decoded": "2024-01-15"
+  },
+  {
+   "text": "1,000,000",
+   "ids": [
+    16,
+    11,
+    15,
+    15,
+    15,
+    11,
+    15,
+    15,
+    15
+   ],
+   "tokens": [
+    "1",
+    ",",
+    "0",
+    "0",
+    "0",
+    ",",
+    "0",
+    "0",
+    "0"
+   ],
+   "decoded": "1,000,000"
+  },
+  {
+   "text": "0x1F",
+   "ids": [
+    15,
+    87,
+    16,
+    37
+   ],
+   "tokens": [
+    "0",
+    "x",
+    "1",
+    "F"
+   ],
+   "decoded": "0x1F"
+  },
+  {
+   "text": "1e-9",
+   "ids": [
+    16,
+    68,
+    12,
+    24
+   ],
+   "tokens": [
+    "1",
+    "e",
+    "-",
+    "9"
+   ],
+   "decoded": "1e-9"
+  },
+  {
+   "text": "v1.2.3",
+   "ids": [
+    85,
+    16,
+    13,
+    17,
+    13,
+    18
+   ],
+   "tokens": [
+    "v",
+    "1",
+    ".",
+    "2",
+    ".",
+    "3"
+   ],
+   "decoded": "v1.2.3"
+  },
+  {
+   "text": "100%",
+   "ids": [
+    16,
+    15,
+    15,
+    4
+   ],
+   "tokens": [
+    "1",
+    "0",
+    "0",
+    "%"
+   ],
+   "decoded": "100%"
+  },
+  {
+   "text": "a+b",
+   "ids": [
+    64,
+    33932
+   ],
+   "tokens": [
+    "a",
+    "+b"
+   ],
+   "decoded": "a+b"
+  },
+  {
+   "text": "a++b",
+   "ids": [
+    64,
+    992,
+    65
+   ],
+   "tokens": [
+    "a",
+    "++",
+    "b"
+   ],
+   "decoded": "a++b"
+  },
+  {
+   "text": "+++",
+   "ids": [
+    60617
+   ],
+   "tokens": [
+    "+++"
+   ],
+   "decoded": "+++"
+  },
+  {
+   "text": "->",
+   "ids": [
+    397
+   ],
+   "tokens": [
+    "->"
+   ],
+   "decoded": "->"
+  },
+  {
+   "text": "=>",
+   "ids": [
+    2110
+   ],
+   "tokens": [
+    "=>"
+   ],
+   "decoded": "=>"
+  },
+  {
+   "text": "::",
+   "ids": [
+    476
+   ],
+   "tokens": [
+    "::"
+   ],
+   "decoded": "::"
+  },
+  {
+   "text": "...",
+   "ids": [
+    1076
+   ],
+   "tokens": [
+    "..."
+   ],
+   "decoded": "..."
+  },
+  {
+   "text": "!!!",
+   "ids": [
+    11726
+   ],
+   "tokens": [
+    "!!!"
+   ],
+   "decoded": "!!!"
+  },
+  {
+   "text": "?!",
+   "ids": [
+    25153
+   ],
+   "tokens": [
+    "?!"
+   ],
+   "decoded": "?!"
+  },
+  {
+   "text": "((a))",
+   "ids": [
+    1148,
+    64,
+    578
+   ],
+   "tokens": [
+    "((",
+    "a",
+    "))"
+   ],
+   "decoded": "((a))"
+  },
+  {
+   "text": "[1,2]",
+   "ids": [
+    58,
+    16,
+    11,
+    17,
+    60
+   ],
+   "tokens": [
+    "[",
+    "1",
+    ",",
+    "2",
+    "]"
+   ],
+   "decoded": "[1,2]"
+  },
+  {
+   "text": "{k: v}",
+   "ids": [
+    66755,
+    25,
+    343,
+    92
+   ],
+   "tokens": [
+    "{k",
+    ":",
+    "Ġv",
+    "}"
+   ],
+   "decoded": "{k: v}"
+  },
+  {
+   "text": "a|b",
+   "ids": [
+    64,
+    91,
+    65
+   ],
+   "tokens": [
+    "a",
+    "|",
+    "b"
+   ],
+   "decoded": "a|b"
+  },
+  {
+   "text": "\\n",
+   "ids": [
+    1639
+   ],
+   "tokens": [
+    "\\n"
+   ],
+   "decoded": "\\n"
+  },
+  {
+   "text": "`code`",
+   "ids": [
+    63,
+    1787,
+    63
+   ],
+   "tokens": [
+    "`",
+    "code",
+    "`"
+   ],
+   "decoded": "`code`"
+  },
+  {
+   "text": "$$$",
+   "ids": [
+    72035
+   ],
+   "tokens": [
+    "$$$"
+   ],
+   "decoded": "$$$"
+  },
+  {
+   "text": "a + b",
+   "ids": [
+    64,
+    478,
+    292
+   ],
+   "tokens": [
+    "a",
+    "Ġ+",
+    "Ġb"
+   ],
+   "decoded": "a + b"
+  },
+  {
+   "text": "a  +  b",
+   "ids": [
+    64,
+    220,
+    478,
+    220,
+    292
+   ],
+   "tokens": [
+    "a",
+    "Ġ",
+    "Ġ+",
+    "Ġ",
+    "Ġb"
+   ],
+   "decoded": "a  +  b"
+  },
+  {
+   "text": "- item",
+   "ids": [
+    12,
+    1455
+   ],
+   "tokens": [
+    "-",
+    "Ġitem"
+   ],
+   "decoded": "- item"
+  },
+  {
+   "text": " - item",
+   "ids": [
+    471,
+    1455
+   ],
+   "tokens": [
+    "Ġ-",
+    "Ġitem"
+   ],
+   "decoded": " - item"
+  },
+  {
+   "text": "  -  item",
+   "ids": [
+    220,
+    471,
+    220,
+    1455
+   ],
+   "tokens": [
+    "Ġ",
+    "Ġ-",
+    "Ġ",
+    "Ġitem"
+   ],
+   "decoded": "  -  item"
+  },
+  {
+   "text": "你好",
+   "ids": [
+    109266
+   ],
+   "tokens": [
+    "ä½łå¥½"
+   ],
+   "decoded": "你好"
+  },
+  {
+   "text": "你好，世界",
+   "ids": [
+    109266,
+    3709,
+    96748
+   ],
+   "tokens": [
+    "ä½łå¥½",
+    "ï¼Į",
+    "ä¸ĸçķĮ"
+   ],
+   "decoded": "你好，世界"
+  },
+  {
+   "text": "日本語のテキスト",
+   "ids": [
+    247359,
+    15303,
+    210342
+   ],
+   "tokens": [
+    "æĹ¥æľ¬èªŀ",
+    "ãģ®",
+    "ãĥĨãĤŃãĤ¹ãĥĪ"
+   ],
+   "decoded": "日本語のテキスト"
+  },
+  {
+   "text": "한국어 텍스트",
+   "ids": [
+    174675,
+    30061,
+    225287
+   ],
+   "tokens": [
+    "íķľêµŃ",
+    "ìĸ´",
+    "ĠíħįìĬ¤íĬ¸"
+   ],
+   "decoded": "한국어 텍스트"
+  },
+  {
+   "text": "Привет мир",
+   "ids": [
+    51844,
+    26125,
+    7921,
+    160202
+   ],
+   "tokens": [
+    "ÐŁÑĢ",
+    "Ð¸Ð²",
+    "ÐµÑĤ",
+    "ĠÐ¼Ð¸ÑĢ"
+   ],
+   "decoded": "Привет мир"
+  },
+  {
+   "text": "Γειά σου",
+   "ids": [
+    168998,
+    148419,
+    71613,
+    185292
+   ],
+   "tokens": [
+    "Îĵ",
+    "ÎµÎ¹",
+    "Î¬",
+    "ĠÏĥÎ¿Ïħ"
+   ],
+   "decoded": "Γειά σου"
+  },
+  {
+   "text": "مرحبا بالعالم",
+   "ids": [
+    148739,
+    28850,
+    150027,
+    182946,
+    149650
+   ],
+   "tokens": [
+    "ÙħØ±",
+    "ØŃ",
+    "Ø¨Ø§",
+    "ĠØ¨Ø§ÙĦØ¹",
+    "Ø§ÙĦÙħ"
+   ],
+   "decoded": "مرحبا بالعالم"
+  },
+  {
+   "text": "שלום עולם",
+   "ids": [
+    209565,
+    173924,
+    150581,
+    194176
+   ],
+   "tokens": [
+    "×©×ľ",
+    "×ķ×Ŀ",
+    "Ġ×¢",
+    "×ķ×ľ×Ŀ"
+   ],
+   "decoded": "שלום עולם"
+  },
+  {
+   "text": "नमस्ते दुनिया",
+   "ids": [
+    58069,
+    84237,
+    75681,
+    196965,
+    33228,
+    148799,
+    70184,
+    58069,
+    153503,
+    23121
+   ],
+   "tokens": [
+    "à¤¨",
+    "à¤®",
+    "à¤¸",
+    "à¥įà¤¤",
+    "à¥ĩ",
+    "Ġà¤¦",
+    "à¥ģ",
+    "à¤¨",
+    "à¤¿à¤¯",
+    "à¤¾"
+   ],
+   "decoded": "नमस्ते दुनिया"
+  },
+  {
+   "text": "ไทย",
+   "ids": [
+    149826
+   ],
+   "tokens": [
+    "à¹Ħà¸Ĺà¸¢"
+   ],
+   "decoded": "ไทย"
+  },
+  {
+   "text": "ελληνικά",
+   "ids": [
+    29159,
+    164594,
+    159778
+   ],
+   "tokens": [
+    "Îµ",
+    "Î»Î»Î·Î½",
+    "Î¹ÎºÎ¬"
+   ],
+   "decoded": "ελληνικά"
+  },
+  {
+   "text": "emoji 😀",
+   "ids": [
+    36280,
+    87209
+   ],
+   "tokens": [
+    "emoji",
+    "ĠðŁĺĢ"
+   ],
+   "decoded": "emoji 😀"
+  },
+  {
+   "text": "😀😀😀",
+   "ids": [
+    169706,
+    169706,
+    169706
+   ],
+   "tokens": [
+    "ðŁĺĢ",
+    "ðŁĺĢ",
+    "ðŁĺĢ"
+   ],
+   "decoded": "😀😀😀"
+  },
+  {
+   "text": "a😀b",
+   "ids": [
+    64,
+    169706,
+    65
+   ],
+   "tokens": [
+    "a",
+    "ðŁĺĢ",
+    "b"
+   ],
+   "decoded": "a😀b"
+  },
+  {
+   "text": "🇨🇳",
+   "ids": [
+    9008,
+    229,
+    101,
+    9008,
+    229,
+    111
+   ],
+   "tokens": [
+    "ðŁ",
+    "ĩ",
+    "¨",
+    "ðŁ",
+    "ĩ",
+    "³"
+   ],
+   "decoded": "🇨🇳"
+  },
+  {
+   "text": "👨‍👩‍👧",
+   "ids": [
+    9008,
+    239,
+    101,
+    373,
+    235,
+    9008,
+    239,
+    102,
+    373,
+    235,
+    9008,
+    239,
+    100
+   ],
+   "tokens": [
+    "ðŁ",
+    "ĳ",
+    "¨",
+    "âĢ",
+    "į",
+    "ðŁ",
+    "ĳ",
+    "©",
+    "âĢ",
+    "į",
+    "ðŁ",
+    "ĳ",
+    "§"
+   ],
+   "decoded": "👨‍👩‍👧"
+  },
+  {
+   "text": "™©®",
+   "ids": [
+    15635,
+    19433,
+    11570
+   ],
+   "tokens": [
+    "âĦ¢",
+    "Â©",
+    "Â®"
+   ],
+   "decoded": "™©®"
+  },
+  {
+   "text": "→←↑↓",
+   "ids": [
+    49300,
+    69416,
+    73676,
+    76322
+   ],
+   "tokens": [
+    "âĨĴ",
+    "âĨĲ",
+    "âĨĳ",
+    "âĨĵ"
+   ],
+   "decoded": "→←↑↓"
+  },
+  {
+   "text": "½¼¾",
+   "ids": [
+    25229,
+    40492,
+    65121
+   ],
+   "tokens": [
+    "Â½",
+    "Â¼",
+    "Â¾"
+   ],
+   "decoded": "½¼¾"
+  },
+  {
+   "text": "°C",
+   "ids": [
+    29922
+   ],
+   "tokens": [
+    "Â°C"
+   ],
+   "decoded": "°C"
+  },
+  {
+   "text": "€100",
+   "ids": [
+    14618,
+    16,
+    15,
+    15
+   ],
+   "tokens": [
+    "âĤ¬",
+    "1",
+    "0",
+    "0"
+   ],
+   "decoded": "€100"
+  },
+  {
+   "text": "№5",
+   "ids": [
+    168958,
+    20
+   ],
+   "tokens": [
+    "âĦĸ",
+    "5"
+   ],
+   "decoded": "№5"
+  },
+  {
+   "text": "é",
+   "ids": [
+    933
+   ],
+   "tokens": [
+    "Ã©"
+   ],
+   "decoded": "é"
+  },
+  {
+   "text": "àb",
+   "ids": [
+    6161,
+    65
+   ],
+   "tokens": [
+    "Ãł",
+    "b"
+   ],
+   "decoded": "àb"
+  },
+  {
+   "text": "x́̂̃",
+   "ids": [
+    87,
+    52033,
+    136,
+    224,
+    136,
+    225
+   ],
+   "tokens": [
+    "x",
+    "Ìģ",
+    "Ì",
+    "Ĥ",
+    "Ì",
+    "ĥ"
+   ],
+   "decoded": "x́̂̃"
+  },
+  {
+   "text": "café",
+   "ids": [
+    895,
+    56868
+   ],
+   "tokens": [
+    "ca",
+    "fÃ©"
+   ],
+   "decoded": "café"
+  },
+  {
+   "text": "mixed 中文 and English123",
+   "ids": [
+    54789,
+    220,
+    99986,
+    321,
+    6163,
+    16,
+    17,
+    18
+   ],
+   "tokens": [
+    "mixed",
+    "Ġ",
+    "ä¸Ńæĸĩ",
+    "Ġand",
+    "ĠEnglish",
+    "1",
+    "2",
+    "3"
+   ],
+   "decoded": "mixed 中文 and English123"
+  },
+  {
+   "text": "Hello 世界 123 !!!",
+   "ids": [
+    9419,
+    220,
+    96748,
+    220,
+    16,
+    17,
+    18,
+    31780
+   ],
+   "tokens": [
+    "Hello",
+    "Ġ",
+    "ä¸ĸçķĮ",
+    "Ġ",
+    "1",
+    "2",
+    "3",
+    "Ġ!!!"
+   ],
+   "decoded": "Hello 世界 123 !!!"
+  },
+  {
+   "text": "a中b1c😀d",
+   "ids": [
+    64,
+    95789,
+    65,
+    16,
+    66,
+    169706,
+    67
+   ],
+   "tokens": [
+    "a",
+    "ä¸Ń",
+    "b",
+    "1",
+    "c",
+    "ðŁĺĢ",
+    "d"
+   ],
+   "decoded": "a中b1c😀d"
+  },
+  {
+   "text": "中文English混合",
+   "ids": [
+    99986,
+    21874,
+    101742
+   ],
+   "tokens": [
+    "ä¸Ńæĸĩ",
+    "English",
+    "æ··åĲĪ"
+   ],
+   "decoded": "中文English混合"
+  },
+  {
+   "text": "test-测试-2024",
+   "ids": [
+    1877,
+    12,
+    99449,
+    12,
+    17,
+    15,
+    17,
+    19
+   ],
+   "tokens": [
+    "test",
+    "-",
+    "æµĭè¯ķ",
+    "-",
+    "2",
+    "0",
+    "2",
+    "4"
+   ],
+   "decoded": "test-测试-2024"
+  },
+  {
+   "text": "camelCaseWord",
+   "ids": [
+    90106,
+    4068,
+    10561
+   ],
+   "tokens": [
+    "camel",
+    "Case",
+    "Word"
+   ],
+   "decoded": "camelCaseWord"
+  },
+  {
+   "text": "PascalCase",
+   "ids": [
+    47,
+    34652,
+    4068
+   ],
+   "tokens": [
+    "P",
+    "ascal",
+    "Case"
+   ],
+   "decoded": "PascalCase"
+  },
+  {
+   "text": "SCREAMING_SNAKE",
+   "ids": [
+    3423,
+    15446,
+    1658,
+    1063,
+    7096,
+    3281
+   ],
+   "tokens": [
+    "SC",
+    "REAM",
+    "ING",
+    "_S",
+    "NA",
+    "KE"
+   ],
+   "decoded": "SCREAMING_SNAKE"
+  },
+  {
+   "text": "snake_case",
+   "ids": [
+    69687,
+    18521
+   ],
+   "tokens": [
+    "snake",
+    "_case"
+   ],
+   "decoded": "snake_case"
+  },
+  {
+   "text": "XMLHttpRequest",
+   "ids": [
+    10294,
+    25520
+   ],
+   "tokens": [
+    "XML",
+    "HttpRequest"
+   ],
+   "decoded": "XMLHttpRequest"
+  },
+  {
+   "text": "iPhone",
+   "ids": [
+    43252
+   ],
+   "tokens": [
+    "iPhone"
+   ],
+   "decoded": "iPhone"
+  },
+  {
+   "text": "eBay",
+   "ids": [
+    68,
+    21887
+   ],
+   "tokens": [
+    "e",
+    "Bay"
+   ],
+   "decoded": "eBay"
+  },
+  {
+   "text": "<|im_start|>user",
+   "ids": [
+    248045,
+    846
+   ],
+   "tokens": [
+    "<|im_start|>",
+    "user"
+   ],
+   "decoded": "<|im_start|>user"
+  },
+  {
+   "text": "<|im_end|>",
+   "ids": [
+    248046
+   ],
+   "tokens": [
+    "<|im_end|>"
+   ],
+   "decoded": "<|im_end|>"
+  },
+  {
+   "text": "<|endoftext|>",
+   "ids": [
+    248044
+   ],
+   "tokens": [
+    "<|endoftext|>"
+   ],
+   "decoded": "<|endoftext|>"
+  },
+  {
+   "text": "a<|im_start|>b",
+   "ids": [
+    64,
+    248045,
+    65
+   ],
+   "tokens": [
+    "a",
+    "<|im_start|>",
+    "b"
+   ],
+   "decoded": "a<|im_start|>b"
+  },
+  {
+   "text": "<|im_start|>system\nYou are helpful.<|im_end|>",
+   "ids": [
+    248045,
+    8678,
+    198,
+    2523,
+    513,
+    10631,
+    13,
+    248046
+   ],
+   "tokens": [
+    "<|im_start|>",
+    "system",
+    "Ċ",
+    "You",
+    "Ġare",
+    "Ġhelpful",
+    ".",
+    "<|im_end|>"
+   ],
+   "decoded": "<|im_start|>system\nYou are helpful.<|im_end|>"
+  },
+  {
+   "text": "<tool_call>",
+   "ids": [
+    248058
+   ],
+   "tokens": [
+    "<tool_call>"
+   ],
+   "decoded": "<tool_call>"
+  },
+  {
+   "text": "<think>reasoning</think>",
+   "ids": [
+    248068,
+    19290,
+    286,
+    248069
+   ],
+   "tokens": [
+    "<think>",
+    "reason",
+    "ing",
+    "</think>"
+   ],
+   "decoded": "<think>reasoning</think>"
+  },
+  {
+   "text": "def f(x): return x+1",
+   "ids": [
+    727,
+    281,
+    2007,
+    1590,
+    460,
+    830,
+    10,
+    16
+   ],
+   "tokens": [
+    "def",
+    "Ġf",
+    "(x",
+    "):",
+    "Ġreturn",
+    "Ġx",
+    "+",
+    "1"
+   ],
+   "decoded": "def f(x): return x+1"
+  },
+  {
+   "text": "{\"key\": \"value\", \"n\": 42}",
+   "ids": [
+    4754,
+    767,
+    763,
+    328,
+    927,
+    487,
+    328,
+    77,
+    763,
+    220,
+    19,
+    17,
+    92
+   ],
+   "tokens": [
+    "{\"",
+    "key",
+    "\":",
+    "Ġ\"",
+    "value",
+    "\",",
+    "Ġ\"",
+    "n",
+    "\":",
+    "Ġ",
+    "4",
+    "2",
+    "}"
+   ],
+   "decoded": "{\"key\": \"value\", \"n\": 42}"
+  },
+  {
+   "text": "for i in range(10):\n    print(i)",
+   "ids": [
+    1891,
+    585,
+    303,
+    2020,
+    7,
+    16,
+    15,
+    1590,
+    198,
+    262,
+    1133,
+    1889,
+    8
+   ],
+   "tokens": [
+    "for",
+    "Ġi",
+    "Ġin",
+    "Ġrange",
+    "(",
+    "1",
+    "0",
+    "):",
+    "Ċ",
+    "ĠĠĠ",
+    "Ġprint",
+    "(i",
+    ")"
+   ],
+   "decoded": "for i in range(10):\n    print(i)"
+  },
+  {
+   "text": "https://example.com/path?a=1&b=2",
+   "ids": [
+    2349,
+    1074,
+    8422,
+    877,
+    49259,
+    95058,
+    28,
+    16,
+    5,
+    65,
+    28,
+    17
+   ],
+   "tokens": [
+    "https",
+    "://",
+    "example",
+    ".com",
+    "/path",
+    "?a",
+    "=",
+    "1",
+    "&",
+    "b",
+    "=",
+    "2"
+   ],
+   "decoded": "https://example.com/path?a=1&b=2"
+  },
+  {
+   "text": "user@example.com",
+   "ids": [
+    846,
+    34314,
+    877
+   ],
+   "tokens": [
+    "user",
+    "@example",
+    ".com"
+   ],
+   "decoded": "user@example.com"
+  },
+  {
+   "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "ids": [
+    67089,
+    67089,
+    67089,
+    67089,
+    67089,
+    67089,
+    67089,
+    67089,
+    67089,
+    67089,
+    67089,
+    67089,
+    27528
+   ],
+   "tokens": [
+    "aaaaaaaa",
+    "aaaaaaaa",
+    "aaaaaaaa",
+    "aaaaaaaa",
+    "aaaaaaaa",
+    "aaaaaaaa",
+    "aaaaaaaa",
+    "aaaaaaaa",
+    "aaaaaaaa",
+    "aaaaaaaa",
+    "aaaaaaaa",
+    "aaaaaaaa",
+    "aaaa"
+   ],
+   "decoded": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  {
+   "text": "abababababababababababababababababababababababababababababababababababababababababababababababababab",
+   "ids": [
+    365,
+    365,
+    365,
+    365,
+    365,
+    365,
+    365,
+    365,
+    365,
+    365,
+    365,
+    365,
+    365,
+    365,
+    365,
+    365,
+    365,
+    365,
+    365,
+    365,
+    365,
+    365,
+    365,
+    365,
+    365,
+    365,
+    365,
+    365,
+    365,
+    365,
+    365,
+    365,
+    365,
+    365,
+    365,
+    365,
+    365,
+    365,
+    365,
+    365,
+    365,
+    365,
+    365,
+    365,
+    365,
+    365,
+    365,
+    365,
+    365,
+    365
+   ],
+   "tokens": [
+    "ab",
+    "ab",
+    "ab",
+    "ab",
+    "ab",
+    "ab",
+    "ab",
+    "ab",
+    "ab",
+    "ab",
+    "ab",
+    "ab",
+    "ab",
+    "ab",
+    "ab",
+    "ab",
+    "ab",
+    "ab",
+    "ab",
+    "ab",
+    "ab",
+    "ab",
+    "ab",
+    "ab",
+    "ab",
+    "ab",
+    "ab",
+    "ab",
+    "ab",
+    "ab",
+    "ab",
+    "ab",
+    "ab",
+    "ab",
+    "ab",
+    "ab",
+    "ab",
+    "ab",
+    "ab",
+    "ab",
+    "ab",
+    "ab",
+    "ab",
+    "ab",
+    "ab",
+    "ab",
+    "ab",
+    "ab",
+    "ab",
+    "ab"
+   ],
+   "decoded": "abababababababababababababababababababababababababababababababababababababababababababababababababab"
+  },
+  {
+   "text": "                    x                    ",
+   "ids": [
+    493,
+    830,
+    3696
+   ],
+   "tokens": [
+    "ĠĠĠĠĠĠĠĠĠĠĠĠĠĠĠĠĠĠĠ",
+    "Ġx",
+    "ĠĠĠĠĠĠĠĠĠĠĠĠĠĠĠĠĠĠĠĠ"
+   ],
+   "decoded": "                    x                    "
+  },
+  {
+   "text": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word ",
+   "ids": [
+    1119,
+    3299,
+    3299,
+    3299,
+    3299,
+    3299,
+    3299,
+    3299,
+    3299,
+    3299,
+    3299,
+    3299,
+    3299,
+    3299,
+    3299,
+    3299,
+    3299,
+    3299,
+    3299,
+    3299,
+    3299,
+    3299,
+    3299,
+    3299,
+    3299,
+    3299,
+    3299,
+    3299,
+    3299,
+    3299,
+    220
+   ],
+   "tokens": [
+    "word",
+    "Ġword",
+    "Ġword",
+    "Ġword",
+    "Ġword",
+    "Ġword",
+    "Ġword",
+    "Ġword",
+    "Ġword",
+    "Ġword",
+    "Ġword",
+    "Ġword",
+    "Ġword",
+    "Ġword",
+    "Ġword",
+    "Ġword",
+    "Ġword",
+    "Ġword",
+    "Ġword",
+    "Ġword",
+    "Ġword",
+    "Ġword",
+    "Ġword",
+    "Ġword",
+    "Ġword",
+    "Ġword",
+    "Ġword",
+    "Ġword",
+    "Ġword",
+    "Ġword",
+    "Ġ"
+   ],
+   "decoded": "word word word word word word word word word word word word word word word word word word word word word word word word word word word word word word "
+  },
+  {
+   "text": "é",
+   "ids": [
+    933
+   ],
+   "tokens": [
+    "Ã©"
+   ],
+   "decoded": "é"
+  },
+  {
+   "text": "É",
+   "ids": [
+    25933
+   ],
+   "tokens": [
+    "Ãī"
+   ],
+   "decoded": "É"
+  },
+  {
+   "text": "àb",
+   "ids": [
+    6161,
+    65
+   ],
+   "tokens": [
+    "Ãł",
+    "b"
+   ],
+   "decoded": "àb"
+  },
+  {
+   "text": "café",
+   "ids": [
+    895,
+    56868
+   ],
+   "tokens": [
+    "ca",
+    "fÃ©"
+   ],
+   "decoded": "café"
+  },
+  {
+   "text": "ñ",
+   "ids": [
+    5476
+   ],
+   "tokens": [
+    "Ã±"
+   ],
+   "decoded": "ñ"
+  },
+  {
+   "text": "ö",
+   "ids": [
+    2862
+   ],
+   "tokens": [
+    "Ã¶"
+   ],
+   "decoded": "ö"
+  },
+  {
+   "text": "ü",
+   "ids": [
+    2314
+   ],
+   "tokens": [
+    "Ã¼"
+   ],
+   "decoded": "ü"
+  },
+  {
+   "text": "Å",
+   "ids": [
+    169111
+   ],
+   "tokens": [
+    "Ãħ"
+   ],
+   "decoded": "Å"
+  },
+  {
+   "text": "é",
+   "ids": [
+    933
+   ],
+   "tokens": [
+    "Ã©"
+   ],
+   "decoded": "é"
+  },
+  {
+   "text": "É",
+   "ids": [
+    25933
+   ],
+   "tokens": [
+    "Ãī"
+   ],
+   "decoded": "É"
+  },
+  {
+   "text": "ạ́",
+   "ids": [
+    19614,
+    52033
+   ],
+   "tokens": [
+    "áº¡",
+    "Ìģ"
+   ],
+   "decoded": "ạ́"
+  },
+  {
+   "text": "ạ́",
+   "ids": [
+    19614,
+    52033
+   ],
+   "tokens": [
+    "áº¡",
+    "Ìģ"
+   ],
+   "decoded": "ạ́"
+  },
+  {
+   "text": "q̣̇",
+   "ids": [
+    80,
+    136,
+    96,
+    136,
+    229
+   ],
+   "tokens": [
+    "q",
+    "Ì",
+    "£",
+    "Ì",
+    "ĩ"
+   ],
+   "decoded": "q̣̇"
+  },
+  {
+   "text": "q̣̇",
+   "ids": [
+    80,
+    136,
+    96,
+    136,
+    229
+   ],
+   "tokens": [
+    "q",
+    "Ì",
+    "£",
+    "Ì",
+    "ĩ"
+   ],
+   "decoded": "q̣̇"
+  },
+  {
+   "text": "क़",
+   "ids": [
+    62516,
+    150502
+   ],
+   "tokens": [
+    "à¤ķ",
+    "à¤¼"
+   ],
+   "decoded": "क़"
+  },
+  {
+   "text": "ড়",
+   "ids": [
+    150221,
+    148589
+   ],
+   "tokens": [
+    "à¦¡",
+    "à¦¼"
+   ],
+   "decoded": "ড়"
+  },
+  {
+   "text": "⫝̸",
+   "ids": [
+    158,
+    104,
+    251,
+    136,
+    116
+   ],
+   "tokens": [
+    "â",
+    "«",
+    "Ŀ",
+    "Ì",
+    "¸"
+   ],
+   "decoded": "⫝̸"
+  },
+  {
+   "text": "̈́",
+   "ids": [
+    136,
+    230,
+    52033
+   ],
+   "tokens": [
+    "Ì",
+    "Ī",
+    "Ìģ"
+   ],
+   "decoded": "̈́"
+  },
+  {
+   "text": "aक़b",
+   "ids": [
+    64,
+    62516,
+    150502,
+    65
+   ],
+   "tokens": [
+    "a",
+    "à¤ķ",
+    "à¤¼",
+    "b"
+   ],
+   "decoded": "aक़b"
+  },
+  {
+   "text": "한",
+   "ids": [
+    22836
+   ],
+   "tokens": [
+    "íķľ"
+   ],
+   "decoded": "한"
+  },
+  {
+   "text": "가",
+   "ids": [
+    19360
+   ],
+   "tokens": [
+    "ê°Ģ"
+   ],
+   "decoded": "가"
+  },
+  {
+   "text": "나",
+   "ids": [
+    58280
+   ],
+   "tokens": [
+    "ëĤĺ"
+   ],
+   "decoded": "나"
+  },
+  {
+   "text": "한",
+   "ids": [
+    22836
+   ],
+   "tokens": [
+    "íķľ"
+   ],
+   "decoded": "한"
+  },
+  {
+   "text": "가",
+   "ids": [
+    19360
+   ],
+   "tokens": [
+    "ê°Ģ"
+   ],
+   "decoded": "가"
+  },
+  {
+   "text": "ᆫ",
+   "ids": [
+    157,
+    228,
+    104
+   ],
+   "tokens": [
+    "á",
+    "Ĩ",
+    "«"
+   ],
+   "decoded": "ᆫ"
+  },
+  {
+   "text": "한국어",
+   "ids": [
+    174675,
+    30061
+   ],
+   "tokens": [
+    "íķľêµŃ",
+    "ìĸ´"
+   ],
+   "decoded": "한국어"
+  },
+  {
+   "text": "́a",
+   "ids": [
+    52033,
+    64
+   ],
+   "tokens": [
+    "Ìģ",
+    "a"
+   ],
+   "decoded": "́a"
+  },
+  {
+   "text": "́",
+   "ids": [
+    52033
+   ],
+   "tokens": [
+    "Ìģ"
+   ],
+   "decoded": "́"
+  },
+  {
+   "text": "中́",
+   "ids": [
+    95789,
+    52033
+   ],
+   "tokens": [
+    "ä¸Ń",
+    "Ìģ"
+   ],
+   "decoded": "中́"
+  },
+  {
+   "text": "А́",
+   "ids": [
+    34960,
+    52033
+   ],
+   "tokens": [
+    "ÐĲ",
+    "Ìģ"
+   ],
+   "decoded": "А́"
+  },
+  {
+   "text": "café 中文",
+   "ids": [
+    895,
+    56868,
+    220,
+    99986
+   ],
+   "tokens": [
+    "ca",
+    "fÃ©",
+    "Ġ",
+    "ä¸Ńæĸĩ"
+   ],
+   "decoded": "café 中文"
+  },
+  {
+   "text": "Explain how a transformer works in one paragraph.",
+   "ids": [
+    814,
+    20139,
+    1204,
+    264,
+    41163,
+    4138,
+    303,
+    799,
+    13901,
+    13
+   ],
+   "tokens": [
+    "Ex",
+    "plain",
+    "Ġhow",
+    "Ġa",
+    "Ġtransformer",
+    "Ġworks",
+    "Ġin",
+    "Ġone",
+    "Ġparagraph",
+    "."
+   ],
+   "decoded": "Explain how a transformer works in one paragraph."
+  },
+  {
+   "text": "What is 2+2?",
+   "ids": [
+    3710,
+    369,
+    220,
+    17,
+    10,
+    17,
+    30
+   ],
+   "tokens": [
+    "What",
+    "Ġis",
+    "Ġ",
+    "2",
+    "+",
+    "2",
+    "?"
+   ],
+   "decoded": "What is 2+2?"
+  },
+  {
+   "text": "Write a poem about the sea.\n\nIt should rhyme.",
+   "ids": [
+    7734,
+    264,
+    31708,
+    883,
+    279,
+    9117,
+    13,
+    271,
+    2064,
+    1220,
+    93590,
+    13
+   ],
+   "tokens": [
+    "Write",
+    "Ġa",
+    "Ġpoem",
+    "Ġabout",
+    "Ġthe",
+    "Ġsea",
+    ".",
+    "ĊĊ",
+    "It",
+    "Ġshould",
+    "Ġrhyme",
+    "."
+   ],
+   "decoded": "Write a poem about the sea.\n\nIt should rhyme."
+  }
+ ]
+}

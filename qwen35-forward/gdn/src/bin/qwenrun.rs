@@ -49,8 +49,8 @@ fn main() -> ExitCode {
     };
     let Some(dir) = args.iter().skip(1).find(|a| !a.starts_with("--")) else {
         eprintln!(
-            "usage: qwenrun <model-dir> [--prompt 1,2,3] [--tokens N] [--topk K]\n\
-             \x20                    [--dump-logits FILE] [--compare FILE] [--tol F]"
+            "usage: qwenrun <model-dir> [--text STRING | --prompt 1,2,3] [--tokens N]\n\
+             \x20                    [--topk K] [--dump-logits FILE] [--compare FILE]"
         );
         return ExitCode::from(2);
     };
@@ -70,17 +70,38 @@ fn main() -> ExitCode {
     // operator mistake produces (a wrong gate or a missing rotation moves logits by
     // ~1e-1, not 1e-5).
     let tol: f32 = val("--tol").and_then(|s| s.parse().ok()).unwrap_or(3e-5);
-    // A tiny default prompt: one token is enough to exercise every layer and makes
-    // the reference comparison cheap.
-    let prompt: Vec<u32> = match val("--prompt") {
-        Some(s) => match parse_list(&s) {
-            Ok(v) => v,
+    // A text prompt goes through the tokenizer; a numeric one is used as-is, which is
+    // what the reference comparison scripts exchange.
+    let text_prompt = val("--text");
+    let (prompt, tokenizer) = match (&text_prompt, val("--prompt")) {
+        (Some(t), _) => {
+            let (tk, info) = match gdn::tokenizer::Tokenizer::from_model_dir(dir) {
+                Ok(x) => x,
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    return ExitCode::FAILURE;
+                }
+            };
+            let ids = tk.encode(t);
+            println!("== tokenizer");
+            println!(
+                "   {}  vocab {}  merges {}  added {}  pattern {}",
+                info.model_type, info.vocab_size, info.merges, info.added_tokens,
+                info.pattern_variant
+            );
+            println!("   prompt {t:?}");
+            println!("   -> {} tokens {ids:?}", ids.len());
+            println!();
+            (ids, Some(tk))
+        }
+        (None, Some(s)) => match parse_list(&s) {
+            Ok(v) => (v, None),
             Err(e) => {
                 eprintln!("error: {e}");
                 return ExitCode::from(2);
             }
         },
-        None => vec![9419],
+        (None, None) => (vec![9419], None),
     };
     if prompt.is_empty() {
         eprintln!("error: empty prompt");
@@ -193,7 +214,15 @@ fn main() -> ExitCode {
     println!("   next-token argmax = {}", idx[0]);
     println!("   top-{topk}:");
     for &t in idx.iter().take(topk) {
-        println!("      {:>7}  {:+.6}", t, last[t]);
+        match &tokenizer {
+            Some(tk) => println!(
+                "      {:>7}  {:+.6}  {:?}",
+                t,
+                last[t],
+                tk.decode(&[t as u32])
+            ),
+            None => println!("      {:>7}  {:+.6}", t, last[t]),
+        }
     }
     // A distribution that is nearly uniform would mean the stack is not doing
     // anything; a healthy model puts most of its mass on a few tokens.
@@ -386,13 +415,29 @@ fn main() -> ExitCode {
             };
             let nxt = t.argmax_last() as u32;
             ids.push(nxt);
-            println!(
-                "     step {k:>2}  len={:<4} -> {nxt}   ({:.2}s elapsed)",
-                ids.len() - 1,
-                t2.elapsed().as_secs_f64()
-            );
+            match &tokenizer {
+                Some(tk) => println!(
+                    "     step {k:>2}  len={:<4} -> {:>7}  {:?}   ({:.2}s elapsed)",
+                    ids.len() - 1,
+                    nxt,
+                    tk.decode(&[nxt]),
+                    t2.elapsed().as_secs_f64()
+                ),
+                None => println!(
+                    "     step {k:>2}  len={:<4} -> {nxt}   ({:.2}s elapsed)",
+                    ids.len() - 1,
+                    t2.elapsed().as_secs_f64()
+                ),
+            }
         }
-        println!("   generated ids: {}", ids[prompt.len()..].iter().map(|x| x.to_string()).collect::<Vec<_>>().join(","));
+        println!(
+            "   generated ids: {}",
+            ids[prompt.len()..].iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",")
+        );
+        if let Some(tk) = &tokenizer {
+            println!("   generated text: {:?}", tk.decode(&ids[prompt.len()..]));
+            println!("   full text:      {:?}", tk.decode(&ids));
+        }
     }
 
     println!();

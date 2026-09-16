@@ -13,6 +13,10 @@ path = "src/main.rs"
 name = "qwenrun"
 path = "src/bin/qwenrun.rs"
 
+[[bin]]
+name = "tokcheck"
+path = "src/bin/tokcheck.rs"
+
 [dependencies]
 goldenbundle = { path = "../bundle" }
 deltarule = { path = "../delta" }
