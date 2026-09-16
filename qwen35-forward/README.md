@@ -45,8 +45,10 @@ gdn/                 the whole model
   unicode_gc.rs      general categories and NFC
   unicode_tables.rs  GENERATED Unicode tables (see tools/)
   tokenizer.rs       byte-level BPE, checked against a committed corpus
+  (GdnState, AttnState, Cache)  the two kinds of decode state
   gdncheck <bundle>  [--layer N] [--chain] [--model] [--verbose]   (golden)
-  qwenrun  <model-dir> [--text STR | --prompt ids] [--tokens N] [--compare FILE]
+  qwenrun  <model-dir> [--text STR | --prompt ids] [--tokens N] [--cached]
+                       [--expect-tokens IDS] [--compare FILE]
   tokcheck <model-dir> <corpus.json>                                (tokenizer)
 tok_corpus/          tokenizer conformance corpora, one per shipped pattern
 tools/ref_qwen35.py  the transformers reference: logits, per-layer dumps, greedy
@@ -850,6 +852,118 @@ test: dropping the rule would make all four recompose and the test fail.
 Ids are compared, not regexes. A separate stability check re-encodes the decoded text and
 requires the same ids, which catches an implementation that is self-consistent but
 segments differently and happens to decode to the same string.
+
+## Step eight: the cache
+
+"KV cache" is the wrong name for this model, and getting that right is most of the work.
+Qwen3.5 is hybrid, so the six `full_attention` layers need a KV cache while the eighteen
+`linear_attention` layers need something else entirely -- and the two behave nothing alike:
+
+| layer kind | state | `Qwen3.5-0.8B` | growth |
+|---|---|---|---|
+| `linear_attention` (18) | conv window `[B, C, K-1]` + recurrent state `[B, H, K, V]` | **19.27 MiB** | **none** |
+| `full_attention` (6) | keys + values `[B, kv_heads, len, head_dim]` | 0 at len 0 | **24.0 KiB/token** |
+
+```
+   cache at len 0: linear 19.27 MiB across 18 layers (constant)
+                 + full 0.00 MiB across 6 layers, growing by 24.0 KiB/token
+   cache after 11 tokens: linear 19.27 MiB (unchanged) + full 0.26 MiB
+```
+
+That table is the whole argument for the architecture: at 2048 tokens the linear layers
+still hold 19.27 MiB while the attention layers hold 48 MiB, and the linear part never
+moves.
+
+### What the linear layers actually remember
+
+Two things, and only two:
+
+* The **convolution window**, `K-1` inputs. `out[p]` needs `x[p-(K-1) ..= p]` and nothing
+  older, so the state is 72 KiB per layer.
+* The **recurrent state**, `[B, H, K, V]`, one matrix per value head. This is a running
+  summary of the whole prefix, and its size is fixed, which is the point.
+
+Both are advanced in place. `Qwen3_5GatedDeltaNet` reads them through
+`causal_conv1d_update` and `torch_recurrent_gated_delta_rule` when `seq_len == 1`.
+
+### The cache is bit-exact, not approximate
+
+```
+   prefill with a fresh cache == the uncached whole-sequence path   bit for bit
+   one token at a time == the whole sequence at once                bit for bit
+```
+
+That is stronger than the reference can claim. Its uncached delta rule is
+`torch_chunk_gated_delta_rule` and its cached one is
+`torch_recurrent_gated_delta_rule` -- two different algorithms that agree only to about
+`1e-7`. This implementation only ever uses the recurrent form, so continuing it is the
+*same* arithmetic and not an approximation of it.
+
+Two refactors made that hold rather than happen to work:
+
+* `conv_forward` assembles `full = [left context (K-1), chunk]` and then evaluates
+  `out[ti] = sum_k w[k] * full[ti + k]`, identically whether the left context is the
+  carried state or zero padding. One expression, no branch in the inner loop, and the new
+  state is just the last `K-1` of `full`. The uncached path is the same function with a
+  zero prefix, so the two cannot drift.
+* `attend` takes a `start` offset and reads a key range that is either the chunk alone or
+  the chunk appended to the cache. No mask is needed for the cached part, because
+  everything already in the cache is in the past. Grouped-query attention is done by
+  indexing (`head / groups`) instead of materialising `repeat_kv`.
+
+`Cache::len` is what makes decoding *correct* rather than merely fast: it is the absolute
+position of the next token, and the rotary tables must be built from it. Building them
+from zero leaves every shape intact and rotates every decoded token as though it were the
+first.
+
+### Measured, and honestly bounded
+
+| | T=64, decode one token |
+|---|---|
+| without a cache (re-run the prefix) | 3.47 s |
+| with a cache | 0.94 s |
+
+**3.7x at 64 tokens, and the ratio grows linearly with `T`.** But the interesting number is
+what limits it:
+
+```
+   T=4     forward: 1.56s  (0.389 s/token)
+   T=8     forward: 1.57s  (0.196 s/token)
+   T=16    forward: 2.29s  (0.143 s/token)
+   T=32    forward: 3.73s  (0.117 s/token)
+   T=64    forward: 5.03s  (0.079 s/token)
+```
+
+There is a **fixed ~1.4 s per forward** and a **marginal ~0.034 s/token**. The fixed part
+is the 1.63 GiB of weights being streamed through `linear`, which is a scalar loop
+accumulating in `f64` -- about 1.2 GB/s of effective weight throughput. So the cache
+removes the marginal term entirely and leaves the fixed one untouched, which is why the
+speedup is invisible at short contexts (1.15 s vs 1.0 s at 10 tokens) and why it is the
+only thing that makes long contexts reachable at all.
+
+The next win is not more caching; it is making `linear` use `f32` SIMD with a blocked
+reduction, which would also remove the reason `f64` accumulation was needed for accuracy.
+That is a change to the inner loop, not to the algorithm.
+
+### Six injected bugs, all caught
+
+| injected bug | unit tests | golden cached check |
+|---|---|---|
+| `cache.len` not advanced (positions wrong) | caught | 2/16 tokens |
+| rotary built from position 0, not the absolute one | caught | 2/16 tokens |
+| KV append drops the old keys | caught | 1/16 tokens |
+| conv state not written back | caught | 1/16 tokens |
+| delta rule ignores the incoming state | caught | 6/16 tokens |
+| linear layers routed to the stateless path | caught | 1/16 tokens |
+
+### A tolerance that hid a bug
+
+The KV-append injection was originally caught by the golden check but **not** by the unit
+test, because the test allowed `1e-4` and the fixture's attention output is small in
+absolute terms. Since the prefill comparison was already bit-exact, there was no reason to
+accept less from the incremental one, so it now asserts bit-exactness too -- and the
+injection fails it. A tolerance is a statement about what you are willing to be wrong
+about, and that one was wrong.
 
 ## The two committed bundles
 

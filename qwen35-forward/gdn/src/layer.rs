@@ -131,6 +131,27 @@ impl MixerTrace {
     }
 }
 
+/// The state a mixer carries between chunks.
+///
+/// One variant per mixer kind, and the kinds have nothing in common except that both are
+/// advanced in place: the linear mixer carries a fixed-size convolution window and
+/// recurrent state, the full-attention mixer carries keys and values that grow with
+/// sequence length. See [`crate::GdnState`] and [`crate::attention::AttnState`].
+#[derive(Debug, Clone)]
+pub enum MixerState {
+    LinearAttention(crate::GdnState),
+    FullAttention(crate::attention::AttnState),
+}
+
+impl MixerState {
+    pub fn bytes(&self) -> usize {
+        match self {
+            MixerState::LinearAttention(g) => g.bytes(),
+            MixerState::FullAttention(a) => a.bytes(),
+        }
+    }
+}
+
 /// Weights of a full decoder layer. Both norms live here, not in the mixer.
 #[derive(Debug, Clone)]
 pub struct LayerWeights {
@@ -157,10 +178,13 @@ pub struct LayerTrace {
     pub out: Vec<f32>,
 }
 
-/// Run a whole decoder layer.
+/// Run a whole decoder layer, restarting every mixer from zero state.
 ///
 /// `hidden_in` is `[B, T, hidden]`. Returns the layer's output, which is the next
 /// layer's input.
+///
+/// This is the whole-sequence path. Use [`layer_forward_with_state`] to decode one token
+/// at a time without re-processing the prefix.
 pub fn layer_forward(
     mixer: Mixer<'_>,
     lw: &LayerWeights,
@@ -168,9 +192,40 @@ pub fn layer_forward(
     b: usize,
     t: usize,
     eps: f32,
-    // `(cos, sin)`, each `[T, rotary_dim]`. Required by full-attention layers and
-    // ignored by linear ones, which have no positional encoding at all.
     rope: Option<(&[f32], &[f32])>,
+) -> Result<LayerTrace, String> {
+    layer_forward_inner(mixer, lw, hidden_in, b, t, eps, rope, None)
+}
+
+/// Run a whole decoder layer, continuing from `state`.
+///
+/// `hidden_in` is the new chunk. For decoding that is one token, and `state` carries
+/// everything the layer remembers. `rope` must cover the chunk's **absolute** positions,
+/// i.e. be built with the position offset already applied.
+#[allow(clippy::too_many_arguments)]
+pub fn layer_forward_with_state(
+    mixer: Mixer<'_>,
+    lw: &LayerWeights,
+    hidden_in: &[f32],
+    b: usize,
+    t: usize,
+    eps: f32,
+    rope: Option<(&[f32], &[f32])>,
+    state: &mut MixerState,
+) -> Result<LayerTrace, String> {
+    layer_forward_inner(mixer, lw, hidden_in, b, t, eps, rope, Some(state))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn layer_forward_inner(
+    mixer: Mixer<'_>,
+    lw: &LayerWeights,
+    hidden_in: &[f32],
+    b: usize,
+    t: usize,
+    eps: f32,
+    rope: Option<(&[f32], &[f32])>,
+    state: Option<&mut MixerState>,
 ) -> Result<LayerTrace, String> {
     let rows = b * t;
     let hidden = lw.input_layernorm.len();
@@ -179,13 +234,34 @@ pub fn layer_forward(
     // The layer's input norm, applied once, before the mixer.
     let ln = rmsnorm_1plus(&lw.input_layernorm, hidden_in, rows, hidden, eps);
 
-    let trace = match mixer {
-        Mixer::LinearAttention(cfg, gw) => MixerTrace::LinearAttention(crate::forward(cfg, gw, &ln, b, t)),
-        Mixer::FullAttention(cfg, aw) => {
+    // Pairing a mixer with the wrong kind of state would be silently wrong -- a
+    // `GdnState` handed to an attention layer would leave the attention consuming an
+    // empty cache -- so mismatches are reported rather than ignored.
+    let trace = match (mixer, state) {
+        (Mixer::LinearAttention(cfg, gw), None) => {
+            MixerTrace::LinearAttention(crate::forward(cfg, gw, &ln, b, t))
+        }
+        (Mixer::LinearAttention(cfg, gw), Some(MixerState::LinearAttention(st))) => {
+            MixerTrace::LinearAttention(crate::forward_with_state(cfg, gw, &ln, b, t, st))
+        }
+        (Mixer::FullAttention(cfg, aw), st) => {
             let Some((cos, sin)) = rope else {
                 return Err("full_attention layer needs RoPE tables".to_string());
             };
-            MixerTrace::FullAttention(attention::forward(cfg, aw, &ln, b, t, cos, sin))
+            match st {
+                None => MixerTrace::FullAttention(attention::forward(cfg, aw, &ln, b, t, cos, sin)),
+                Some(MixerState::FullAttention(as_)) => MixerTrace::FullAttention(
+                    attention::forward_with_state(cfg, aw, &ln, b, t, cos, sin, as_),
+                ),
+                Some(MixerState::LinearAttention(_)) => {
+                    return Err(
+                        "a linear-attention state was given to a full-attention layer".to_string()
+                    )
+                }
+            }
+        }
+        (Mixer::LinearAttention(..), Some(MixerState::FullAttention(_))) => {
+            return Err("a full-attention state was given to a linear-attention layer".to_string())
         }
     };
 
@@ -320,6 +396,91 @@ mod tests {
         // second residual adds to the *updated* value, not the original
         assert_eq!(t.out, vec![11.0, 22.0]);
         assert_ne!(t.out, vec![1.0, 2.0]);
+    }
+
+    /// A mismatched mixer/state pair must be reported, not ignored. Handing a
+    /// `GdnState` to an attention layer would leave it reading an empty cache, which
+    /// still produces finite output.
+    #[test]
+    fn mismatched_state_kind_is_reported() {
+        let lw = LayerWeights {
+            input_layernorm: vec![0.0],
+            post_attention_layernorm: vec![0.0],
+            mlp: MlpWeights {
+                gate_proj: vec![0.0],
+                up_proj: vec![0.0],
+                down_proj: vec![0.0],
+            },
+        };
+        let ac = AttnConfig {
+            hidden: 1,
+            num_heads: 1,
+            num_kv_heads: 1,
+            head_dim: 1,
+            rotary_dim: 1,
+            rope_theta: 1e4,
+            eps: 1e-6,
+        };
+        let aw = AttnWeights {
+            q_proj: vec![0.0, 0.0],
+            k_proj: vec![0.0],
+            v_proj: vec![0.0],
+            o_proj: vec![0.0],
+            q_norm: vec![0.0],
+            k_norm: vec![0.0],
+        };
+        let (cos, sin) = crate::attention::build_rope(&ac, 1, 0);
+        let mut wrong = MixerState::LinearAttention(crate::GdnState {
+            conv: vec![],
+            ssm: vec![],
+        });
+        let err = layer_forward_with_state(
+            Mixer::FullAttention(&ac, &aw),
+            &lw,
+            &[1.0],
+            1,
+            1,
+            1e-6,
+            Some((&cos, &sin)),
+            &mut wrong,
+        )
+        .unwrap_err();
+        assert!(err.contains("linear-attention state"), "{err}");
+
+        // And the other direction.
+        let gc = crate::GdnConfig {
+            hidden: 1,
+            num_k_heads: 1,
+            num_v_heads: 1,
+            head_k_dim: 1,
+            head_v_dim: 1,
+            conv_kernel: 2,
+            eps: 1e-6,
+        };
+        let gw = crate::GdnWeights {
+            in_proj_qkv: vec![0.0; 4],
+            in_proj_z: vec![0.0],
+            in_proj_b: vec![0.0],
+            in_proj_a: vec![0.0],
+            conv1d: vec![0.0; 2],
+            a_log: vec![0.0],
+            dt_bias: vec![0.0],
+            norm: vec![0.0],
+            out_proj: vec![0.0],
+        };
+        let mut wrong = MixerState::FullAttention(crate::attention::AttnState::new());
+        let err = layer_forward_with_state(
+            Mixer::LinearAttention(&gc, &gw),
+            &lw,
+            &[1.0],
+            1,
+            1,
+            1e-6,
+            None,
+            &mut wrong,
+        )
+        .unwrap_err();
+        assert!(err.contains("full-attention state"), "{err}");
     }
 
     /// A full-attention layer without RoPE tables must report it rather than

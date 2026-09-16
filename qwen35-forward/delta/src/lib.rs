@@ -189,13 +189,45 @@ pub fn forward_prepared(
     g: &[f32],
     beta: &[f32],
 ) -> (Vec<f32>, Vec<f32>) {
+    let mut state = vec![0f32; s.b * s.h * s.k * s.v];
+    let out = forward_prepared_into(s, q_in, k_in, v, g, beta, &mut state);
+    (out, state)
+}
+
+/// Prepare and run starting from `state`, leaving the final state in `state`.
+///
+/// This is what a cached decode step needs: `T = 1`, with the recurrence carried
+/// across calls instead of restarted.
+///
+/// # Why a cached run is exact here, and not merely close
+///
+/// `forward` already treats `state` as the value on entry, so carrying it is the same
+/// computation continued rather than an approximation of it. A cached decode and a full
+/// recompute of the same sequence therefore agree to the last bit, and a test asserts
+/// exactly that.
+///
+/// The reference cannot make that claim: its uncached path uses
+/// `torch_chunk_gated_delta_rule` and its cached path uses
+/// `torch_recurrent_gated_delta_rule`, two different algorithms that agree only to about
+/// `1e-7`. This implementation only ever uses the recurrent form, so the two paths cannot
+/// disagree at all.
+pub fn forward_prepared_into(
+    s: &Shape,
+    q_in: &[f32],
+    k_in: &[f32],
+    v: &[f32],
+    g: &[f32],
+    beta: &[f32],
+    state: &mut [f32],
+) -> Vec<f32> {
     validate_operands(s, q_in, k_in, v, g, beta);
+    // state is [B, H, K, V] -- no time axis.
+    let want = s.b * s.h * s.k * s.v;
+    assert_eq!(state.len(), want, "delta rule: state length vs shape {s:?}");
     let mut q = q_in.to_vec();
     let mut k = k_in.to_vec();
     prepare_qk(&mut q, &mut k, s.b, s.t, s.h, s.k);
-    let mut state = vec![0f32; s.b * s.h * s.k * s.v];
-    let out = forward(s, &q, &k, v, g, beta, &mut state);
-    (out, state)
+    forward(s, &q, &k, v, g, beta, state)
 }
 
 #[cfg(test)]
@@ -224,6 +256,98 @@ mod tests {
     ///
     /// This is a stronger check than "agrees with golden" because it cannot
     /// inherit a mistake from the reference.
+    /// The invariant a cache depends on: running `[0..t1)` and then `[t1..t2)` while
+    /// carrying the state must produce the same outputs as running `[0..t2)` once.
+    ///
+    /// This is stronger than comparing against the reference, because it must hold
+    /// *exactly*: the recurrence is continued, not restarted, so there is no
+    /// reordering and no accumulated difference. If it only held approximately, a
+    /// cached decode would drift from an uncached one and the cause would be hard to
+    /// find later.
+    #[test]
+    fn splitting_the_sequence_carries_the_state_exactly() {
+        let (b, t_total, h, k, v) = (1usize, 7usize, 2usize, 3usize, 4usize);
+        let full = Shape { b, t: t_total, h, k, v };
+        let mk = |n: usize, seed: u32| -> Vec<f32> {
+            (0..n)
+                .map(|i| {
+                    let x = (i as u32).wrapping_mul(2654435761).wrapping_add(seed);
+                    ((x >> 8) % 2000) as f32 / 1000.0 - 1.0
+                })
+                .collect()
+        };
+        let qf = mk(b * t_total * h * k, 11);
+        let kf = mk(b * t_total * h * k, 22);
+        let vf = mk(b * t_total * h * v, 33);
+        let gf = mk(b * t_total * h, 44);
+        let bf = mk(b * t_total * h, 55);
+
+        let (whole, state_whole) = forward_prepared(&full, &qf, &kf, &vf, &gf, &bf);
+
+        // Split into a length-3 chunk and a length-4 chunk, carrying the state.
+        let mut state = vec![0f32; b * h * k * v];
+        let mut split = Vec::new();
+        for (t0, len) in [(0usize, 3usize), (3, 4)] {
+            let part = Shape { b, t: len, h, k, v };
+            let sl = |src: &[f32], per_t: usize| -> Vec<f32> {
+                src[t0 * per_t..(t0 + len) * per_t].to_vec()
+            };
+            let out = forward_prepared_into(
+                &part,
+                &sl(&qf, h * k),
+                &sl(&kf, h * k),
+                &sl(&vf, h * v),
+                &sl(&gf, h),
+                &sl(&bf, h),
+                &mut state,
+            );
+            split.extend_from_slice(&out);
+        }
+
+        assert_eq!(split.len(), whole.len());
+        for i in 0..whole.len() {
+            assert_eq!(
+                split[i].to_bits(),
+                whole[i].to_bits(),
+                "index {i}: chunked {} vs whole {}",
+                split[i],
+                whole[i]
+            );
+        }
+        for i in 0..state.len() {
+            assert_eq!(
+                state[i].to_bits(),
+                state_whole[i].to_bits(),
+                "state index {i} differs"
+            );
+        }
+    }
+
+    /// A cached step must start from the state and not from zero, or the cache would
+    /// have no effect. With a non-zero state the first token's output must differ from
+    /// what a zero state gives.
+    #[test]
+    fn a_non_zero_state_changes_the_first_token() {
+        let s = shape();
+        let mk = |n: usize| -> Vec<f32> { (0..n).map(|i| ((i % 7) as f32) * 0.1 - 0.3).collect() };
+        let (q, k, v) = (
+            mk(s.b * s.t * s.h * s.k),
+            mk(s.b * s.t * s.h * s.k),
+            mk(s.b * s.t * s.h * s.v),
+        );
+        let g = vec![-0.1f32; s.b * s.t * s.h];
+        let beta = vec![0.5f32; s.b * s.t * s.h];
+
+        let (out_zero, _) = forward_prepared(&s, &q, &k, &v, &g, &beta);
+        let mut st = vec![0.7f32; s.b * s.h * s.k * s.v];
+        let out_nonzero = forward_prepared_into(&s, &q, &k, &v, &g, &beta, &mut st);
+        let differs = out_zero
+            .iter()
+            .zip(out_nonzero.iter())
+            .any(|(a, b)| (a - b).abs() > 1e-6);
+        assert!(differs, "a non-zero initial state had no effect");
+    }
+
     #[test]
     fn t1_matches_closed_form() {
         let s = Shape { b: 2, t: 1, h: 3, k: 6, v: 4 };

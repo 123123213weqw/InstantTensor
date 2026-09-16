@@ -36,7 +36,7 @@
 //! rule sees `num_v_heads`, not `num_k_heads`. The captured operands confirm it:
 //! `q`/`k` are `[1, 6, 4, 16]` while `num_k_heads` is 2.
 
-use deltarule::{forward_prepared, Shape};
+use deltarule::{forward_prepared, forward_prepared_into, Shape};
 
 pub mod attention;
 pub mod layer;
@@ -304,7 +304,10 @@ fn sigmoid(x: f32) -> f32 {
     1.0 / (1.0 + (-x).exp())
 }
 
-/// Depthwise causal convolution followed by SiLU, over `[B, C, T]`.
+/// Depthwise causal convolution followed by SiLU, over `[B, C, T]`, optionally
+/// continuing from a carried state.
+///
+/// Returns `(out, new_state)`: `out` is `[B, C, T]`, `new_state` is `[B, C, K-1]`.
 ///
 /// The reference is
 ///
@@ -313,47 +316,84 @@ fn sigmoid(x: f32) -> f32 {
 /// out = silu(out)
 /// ```
 ///
-/// so the whole `(K-1)` padding is on the **left**, and the trailing positions are
-/// dropped. Written per element with zero padding, that is
-/// `out[b, c, t] = sum_k w[c, k] * x[b, c, t + k - (K-1)]`, which is causal:
-/// position `t` reads `x[.. t]` and never a future step.
+/// so the whole `(K-1)` padding is on the **left** and the trailing positions are
+/// dropped. That is what makes it causal: position `p` reads `x[p-(K-1) ..= p]` and
+/// never a future step.
 ///
-/// Each batch is convolved independently — `F.conv1d` does not mix batches.
-pub fn conv1d_silu(
+/// Both call modes evaluate the same expression, and they differ only in where the
+/// left context comes from. Position `p` needs the previous `K-1` inputs:
+///
+/// * no state: they must be inside the chunk, so a short chunk is zero-padded. This is
+///   the uncached path, and re-processing the whole sequence at every step is what it
+///   costs.
+/// * a state: they are prepended. This is what makes a **single-token** step possible,
+///   because a chunk of one has no left context of its own.
+///
+/// Assembling `full = [left context (K-1), chunk (t)]` first makes the inner loop
+/// `out[ti] = sum_k w[k] * full[ti + k]` for both modes with no branch inside, and makes
+/// the new state simply the last `K-1` entries of `full`. Zero padding is not a special
+/// case here, it is the same window with a zero prefix.
+///
+/// `K-1` is the minimum the next step needs. The reference keeps `K` and discards one
+/// extra output; a test asserts the two agree exactly.
+///
+/// # No bias in practice
+///
+/// `bias` is an `Option` because the checkpoints have no `conv1d.bias` at all: Qwen3.5
+/// constructs the module with `bias=False`, and none of the 18 linear layers in
+/// `Qwen3.5-0.8B` has one. It is kept in the signature so the reference's
+/// `F.conv1d(..., bias, ...)` is visibly accounted for rather than silently dropped.
+#[allow(clippy::too_many_arguments)]
+pub fn conv_forward(
     w: &[f32],
     bias: Option<&[f32]>,
-    x: &[f32],
+    x_bct: &[f32],
     b: usize,
     channels: usize,
     t: usize,
     k: usize,
-) -> Vec<f32> {
+    state_in: Option<&[f32]>,
+) -> (Vec<f32>, Vec<f32>) {
     assert_eq!(w.len(), channels * k, "conv weight size");
-    assert_eq!(x.len(), b * channels * t, "conv input size");
-    let mut y = vec![0f32; b * channels * t];
+    assert_eq!(x_bct.len(), b * channels * t, "conv input size");
+    let keep = k.saturating_sub(1);
+    if let Some(st) = state_in {
+        assert_eq!(st.len(), b * channels * keep, "conv state size");
+    }
+
+    let mut out = vec![0f32; b * channels * t];
+    let mut new_state = vec![0f32; b * channels * keep];
+    // Reused across (batch, channel); holds [left context, chunk].
+    let mut full = vec![0f32; keep + t];
+
     for bi in 0..b {
         for c in 0..channels {
             let wc = &w[c * k..(c + 1) * k];
-            let xoff = (bi * channels + c) * t;
-            let xc = &x[xoff..xoff + t];
-            let yc = &mut y[xoff..xoff + t];
-            for (ti, out_t) in yc.iter_mut().enumerate() {
+            let off = (bi * channels + c) * t;
+            let so = (bi * channels + c) * keep;
+
+            match state_in {
+                Some(st) => full[..keep].copy_from_slice(&st[so..so + keep]),
+                None => full[..keep].fill(0.0),
+            }
+            full[keep..].copy_from_slice(&x_bct[off..off + t]);
+
+            for ti in 0..t {
                 let mut acc = 0f32;
-                for (ki, wc_k) in wc.iter().enumerate() {
-                    // padded index: ti + ki - (k - 1) into the unpadded signal
-                    let j = ti as isize + ki as isize - (k as isize - 1);
-                    if j >= 0 && (j as usize) < t {
-                        acc += wc_k * xc[j as usize];
-                    }
+                for (ki, wk) in wc.iter().enumerate() {
+                    acc += wk * full[ti + ki];
                 }
                 if let Some(bb) = bias {
                     acc += bb[c];
                 }
-                *out_t = silu(acc);
+                out[off + ti] = silu(acc);
             }
+
+            // The last `keep` entries of `full` are the context the next chunk needs.
+            new_state[so..so + keep].copy_from_slice(&full[t..t + keep]);
         }
     }
-    y
+    (out, new_state)
 }
 
 /// `repeat_interleave(x, ratio)` on the head axis of a `[B, T, H, D]` tensor.
@@ -434,7 +474,43 @@ pub struct GdnTrace {
     pub out_proj: Vec<f32>,
 }
 
-/// Run the mixer on an **already-normalised** input.
+/// Per-layer state the linear-attention mixer carries between calls.
+///
+/// The mixer has two kinds of memory, and they are not the same thing:
+///
+/// * [`conv`](GdnState::conv) is the previous `conv_kernel - 1` inputs. The depthwise
+///   causal convolution needs exactly that much left context, so this is tiny and
+///   bounded.
+/// * [`ssm`](GdnState::ssm) is the delta rule's recurrent state, `[B, H, K, V]`. This is
+///   the reason a linear-attention layer exists at all: it is a **constant** amount of
+///   state, so unlike a KV cache it does not grow with context. For `Qwen3.5-0.8B` one
+///   layer is `16*128*128` = 262144 `f32` = 1 MiB, and 18 of them is 19.3 MiB no matter
+///   how long the conversation runs. The 6 full-attention layers are the ones whose
+///   cache grows, and they grow linearly.
+#[derive(Debug, Clone)]
+pub struct GdnState {
+    /// `[B, conv_dim, K-1]`, channels-first to match the convolution's layout.
+    pub conv: Vec<f32>,
+    /// `[B, num_v_heads, head_k_dim, head_v_dim]`
+    pub ssm: Vec<f32>,
+}
+
+impl GdnState {
+    /// A zeroed state, which is what the first chunk of a sequence starts from.
+    pub fn new(cfg: &GdnConfig, b: usize) -> Self {
+        Self {
+            conv: vec![0f32; b * cfg.conv_dim() * cfg.conv_kernel.saturating_sub(1)],
+            ssm: vec![0f32; b * cfg.num_v_heads * cfg.head_k_dim * cfg.head_v_dim],
+        }
+    }
+
+    /// Bytes of state, so a caller can report what the cache costs.
+    pub fn bytes(&self) -> usize {
+        (self.conv.len() + self.ssm.len()) * std::mem::size_of::<f32>()
+    }
+}
+
+/// Run the mixer on an **already-normalised** input, with no prior state.
 ///
 /// `x` is the output of the decoder layer's `input_layernorm`, which the layer
 /// owns: `Qwen3_5GatedDeltaNet` has no `input_layernorm` of its own, and neither
@@ -442,7 +518,42 @@ pub struct GdnTrace {
 /// single layer while double-normalising in a chain, so the layer does it.
 ///
 /// `x` is `[B, T, hidden]`. The returned `out_proj` is the mixer's output.
+///
+/// This is the whole-sequence path: it re-runs from zero state every time, so a caller
+/// that decodes one token at a time pays for the entire prefix at each step. Use
+/// [`forward_with_state`] to avoid that.
 pub fn forward(cfg: &GdnConfig, w: &GdnWeights, x: &[f32], b: usize, t: usize) -> GdnTrace {
+    forward_impl(cfg, w, x, b, t, None)
+}
+
+/// Run the mixer continuing from `state`, which is advanced in place.
+///
+/// `x` is the new chunk, `[B, T, hidden]`. Decoding passes `T = 1` and lets `state`
+/// carry everything the mixer remembers.
+///
+/// Because the state is *continued* rather than restarted, this is the same arithmetic
+/// as [`forward`] over the concatenated sequence, not an approximation of it. A test
+/// asserts the two agree bit for bit, which is a stronger statement than the reference
+/// can make: its uncached and cached delta-rule paths are different algorithms.
+pub fn forward_with_state(
+    cfg: &GdnConfig,
+    w: &GdnWeights,
+    x: &[f32],
+    b: usize,
+    t: usize,
+    state: &mut GdnState,
+) -> GdnTrace {
+    forward_impl(cfg, w, x, b, t, Some(state))
+}
+
+fn forward_impl(
+    cfg: &GdnConfig,
+    w: &GdnWeights,
+    x: &[f32],
+    b: usize,
+    t: usize,
+    state: Option<&mut GdnState>,
+) -> GdnTrace {
     let h = cfg.hidden;
     let rows = b * t;
     assert_eq!(x.len(), rows * h, "gdn input size vs config");
@@ -453,15 +564,36 @@ pub fn forward(cfg: &GdnConfig, w: &GdnWeights, x: &[f32], b: usize, t: usize) -
     let bb = linear(&w.in_proj_b, None, x, rows, h, cfg.num_v_heads);
     let aa = linear(&w.in_proj_a, None, x, rows, h, cfg.num_v_heads);
 
-    // 3. conv over [B, C, T]. The reference transposes to channels-first, this
-    //    operates on the same layout, then transposes back.
+    // 2. conv over [B, C, T]. The reference transposes to channels-first, so this
+    //    does too. `w.conv1d` is stored [C, 1, K]; a contiguous [C, 1, K] tensor is
+    //    exactly [C*K] in memory, so it is used directly and `conv_forward` asserts
+    //    the length it needs.
     let mixed_bct = btc_to_bct(&mixed, b, t, cfg.conv_dim()); // [B, C, T]
-    // Stored [C, 1, K]; a contiguous [C, 1, K] tensor is exactly [C*K] in memory,
-    // so it can be used directly. `conv1d_silu` asserts the length it needs.
-    let conv_out = conv1d_silu(&w.conv1d, None, &mixed_bct, b, cfg.conv_dim(), t, cfg.conv_kernel);
+    let (conv_out, new_conv_state) = match &state {
+        Some(st) => conv_forward(
+            &w.conv1d,
+            None,
+            &mixed_bct,
+            b,
+            cfg.conv_dim(),
+            t,
+            cfg.conv_kernel,
+            Some(&st.conv),
+        ),
+        None => conv_forward(
+            &w.conv1d,
+            None,
+            &mixed_bct,
+            b,
+            cfg.conv_dim(),
+            t,
+            cfg.conv_kernel,
+            None,
+        ),
+    };
     let conv_btc = bct_to_btc(&conv_out, b, cfg.conv_dim(), t); // [B, T, C]
 
-    // 4. split into q, k, v along the last axis
+    // 3. split into q, k, v along the last axis
     let kd = cfg.key_dim();
     let vd = cfg.value_dim();
     let mut q_raw = vec![0f32; rows * kd];
@@ -474,8 +606,7 @@ pub fn forward(cfg: &GdnConfig, w: &GdnWeights, x: &[f32], b: usize, t: usize) -
         v_raw[r * vd..(r + 1) * vd].copy_from_slice(&src[2 * kd..2 * kd + vd]);
     }
 
-    // 5. head reshape: [rows, num_heads, head_dim]
-    // 6. g and beta
+    // 4. g and beta
     let mut beta = vec![0f32; rows * cfg.num_v_heads];
     let mut g = vec![0f32; rows * cfg.num_v_heads];
     for r in 0..rows {
@@ -489,16 +620,27 @@ pub fn forward(cfg: &GdnConfig, w: &GdnWeights, x: &[f32], b: usize, t: usize) -
         }
     }
 
-    // 7. GQA expansion, before the rule
+    // 5. GQA expansion, before the rule
     let ratio = cfg.kv_ratio();
     let q = repeat_interleave_heads(&q_raw, b, t, cfg.num_k_heads, cfg.head_k_dim, ratio);
     let k = repeat_interleave_heads(&k_raw, b, t, cfg.num_k_heads, cfg.head_k_dim, ratio);
 
-    // 8. the rule
+    // 6. the rule, continued from the state when there is one
     let shape = Shape { b, t, h: cfg.num_v_heads, k: cfg.head_k_dim, v: cfg.head_v_dim };
-    let (delta_out, delta_state) = forward_prepared(&shape, &q, &k, &v_raw, &g, &beta);
+    let (delta_out, delta_state) = match state {
+        Some(st) => {
+            let out = forward_prepared_into(&shape, &q, &k, &v_raw, &g, &beta, &mut st.ssm);
+            // Snapshot for the trace, then advance the conv state. The clone is
+            // diagnostic only -- `gdncheck` compares this tensor -- and could be
+            // skipped when nobody is looking.
+            let snap = st.ssm.clone();
+            st.conv = new_conv_state;
+            (out, snap)
+        }
+        None => forward_prepared(&shape, &q, &k, &v_raw, &g, &beta),
+    };
 
-    // 9. gated norm over head_v_dim, with z as the gate.
+    // 7. gated norm over head_v_dim, with z as the gate.
     //
     //    The reference reshapes both to `(-1, head_v_dim)`:
     //        core_attn_out.reshape(-1, head_v_dim)   from [B, T, H, V]
@@ -508,7 +650,7 @@ pub fn forward(cfg: &GdnConfig, w: &GdnWeights, x: &[f32], b: usize, t: usize) -
     let norm_rows = rows * cfg.num_v_heads;
     let norm = rmsnorm_gated(&w.norm, &delta_out, &z_full, norm_rows, cfg.head_v_dim, cfg.eps);
 
-    // 10. out_proj
+    // 8. out_proj
     let out_proj = linear(&w.out_proj, None, &norm, rows, vd, h);
 
     GdnTrace {
@@ -575,7 +717,7 @@ mod tests {
         let (b, c, t, k) = (1usize, 1usize, 5usize, 4usize);
         let w = vec![1.0f32, 1.0, 1.0, 1.0];
         let x = vec![1.0f32, 2.0, 3.0, 4.0, 5.0];
-        let y = conv1d_silu(&w, None, &x, b, c, t, k);
+        let (y, _) = conv_forward(&w, None, &x, b, c, t, k, None);
         assert_eq!(y.len(), b * c * t);
         // out[t] = silu(sum of x[t-3..=t] present)
         // t=0 -> x[0] = 1
@@ -587,7 +729,7 @@ mod tests {
         // causality: changing x[4] must not alter y[0..=3]
         let mut x2 = x.clone();
         x2[4] = 100.0;
-        let y2 = conv1d_silu(&w, None, &x2, b, c, t, k);
+        let (y2, _) = conv_forward(&w, None, &x2, b, c, t, k, None);
         for i in 0..4 {
             assert!((y[i] - y2[i]).abs() < 1e-6, "position {i} saw the future");
         }
@@ -601,7 +743,7 @@ mod tests {
         let (b, c, t, k) = (2usize, 1usize, 3usize, 2usize);
         let w = vec![1.0f32, 0.0];
         let x = vec![1.0f32, 2.0, 3.0, /* batch 1 */ 10.0, 20.0, 30.0];
-        let y = conv1d_silu(&w, None, &x, b, c, t, k);
+        let (y, _) = conv_forward(&w, None, &x, b, c, t, k, None);
         // out[b, 0, t] = silu(x[b, 0, t-1]) with the left pad dropped
         assert!((y[0] - silu(0.0)).abs() < 1e-6);
         assert!((y[1] - silu(1.0)).abs() < 1e-6);
@@ -699,5 +841,139 @@ mod tests {
         let x = vec![1.0f32, 1.0, 1.0];
         let y = linear(&w, None, &x, 1, 3, 2);
         assert_eq!(y, vec![6.0, 15.0]);
+    }
+
+    /// A test fixture: a small but structurally complete gated delta net.
+    fn gdn_fixture() -> (GdnConfig, GdnWeights) {
+        let cfg = GdnConfig {
+            hidden: 8,
+            num_k_heads: 2,
+            num_v_heads: 2,
+            head_k_dim: 3,
+            head_v_dim: 4,
+            conv_kernel: 4,
+            eps: 1e-6,
+        };
+        let det = |n: usize, seed: u32| -> Vec<f32> {
+            (0..n)
+                .map(|i| {
+                    let x = (i as u32).wrapping_mul(2654435761).wrapping_add(seed);
+                    ((x >> 8) % 2000) as f32 / 1000.0 - 1.0
+                })
+                .collect()
+        };
+        let w = GdnWeights {
+            in_proj_qkv: det(cfg.conv_dim() * cfg.hidden, 1),
+            in_proj_z: det(cfg.value_dim() * cfg.hidden, 2),
+            in_proj_b: det(cfg.num_v_heads * cfg.hidden, 3),
+            in_proj_a: det(cfg.num_v_heads * cfg.hidden, 4),
+            conv1d: det(cfg.conv_dim() * cfg.conv_kernel, 5),
+            a_log: vec![0.1; cfg.num_v_heads],
+            dt_bias: vec![0.0; cfg.num_v_heads],
+            norm: vec![0.5; cfg.head_v_dim],
+            out_proj: det(cfg.hidden * cfg.value_dim(), 6),
+        };
+        (cfg, w)
+    }
+
+    /// The convolution with a carried state must equal the convolution of the whole
+    /// signal at once. This is the conv half of what a cache depends on.
+    #[test]
+    fn conv_with_state_equals_the_whole_signal() {
+        let (b, c, k) = (2usize, 3usize, 4usize);
+        let t = 9usize;
+        let w: Vec<f32> = (0..c * k).map(|i| ((i % 5) as f32) * 0.25 - 0.5).collect();
+        let x: Vec<f32> = (0..b * c * t).map(|i| ((i * 37 % 23) as f32) - 11.0).collect();
+
+        let (whole, _) = conv_forward(&w, None, &x, b, c, t, k, None);
+
+        // Feed it in chunks of 1, 2, 3 and 3, carrying the state.
+        let mut state = vec![0f32; b * c * (k - 1)];
+        let mut got = vec![0f32; b * c * t];
+        let mut done = 0usize;
+        for len in [1usize, 2, 3, 3] {
+            // Gather the chunk for every (batch, channel).
+            let mut chunk = vec![0f32; b * c * len];
+            for bi in 0..b {
+                for ci in 0..c {
+                    let src = (bi * c + ci) * t + done;
+                    let dst = (bi * c + ci) * len;
+                    chunk[dst..dst + len].copy_from_slice(&x[src..src + len]);
+                }
+            }
+            let (out, ns) = conv_forward(&w, None, &chunk, b, c, len, k, Some(&state));
+            for bi in 0..b {
+                for ci in 0..c {
+                    let dst = (bi * c + ci) * t + done;
+                    let src = (bi * c + ci) * len;
+                    got[dst..dst + len].copy_from_slice(&out[src..src + len]);
+                }
+            }
+            state = ns;
+            done += len;
+        }
+        assert_eq!(done, t);
+        for (i, (a, b)) in got.iter().zip(whole.iter()).enumerate() {
+            assert_eq!(a.to_bits(), b.to_bits(), "index {i}: chunked {a} vs whole {b}");
+        }
+    }
+
+    /// The full mixer, one token at a time with a state, must equal the whole-sequence
+    /// call. This is the invariant the KV/recurrent cache rests on.
+    #[test]
+    fn incremental_mixer_equals_whole_sequence() {
+        let (cfg, w) = gdn_fixture();
+        let (b, t) = (1usize, 6usize);
+        let x: Vec<f32> = (0..b * t * cfg.hidden)
+            .map(|i| ((i * 17 % 31) as f32) * 0.1 - 1.5)
+            .collect();
+
+        let whole = forward(&cfg, &w, &x, b, t);
+
+        let mut st = GdnState::new(&cfg, b);
+        let mut got = vec![0f32; b * t * cfg.hidden];
+        for ti in 0..t {
+            let chunk: Vec<f32> = x[ti * cfg.hidden..(ti + 1) * cfg.hidden].to_vec();
+            let tr = forward_with_state(&cfg, &w, &chunk, b, 1, &mut st);
+            got[ti * cfg.hidden..(ti + 1) * cfg.hidden].copy_from_slice(&tr.out_proj);
+        }
+        for (i, (a, b)) in got.iter().zip(whole.out_proj.iter()).enumerate() {
+            assert_eq!(
+                a.to_bits(),
+                b.to_bits(),
+                "index {i}: incremental {a} vs whole {b}"
+            );
+        }
+    }
+
+    /// The state must actually be used and advanced. If the conv state were ignored, a
+    /// single-token step would lose its left context; if it were not written back, the
+    /// next step would too. Both would still produce finite numbers.
+    #[test]
+    fn the_state_is_used_and_advanced() {
+        let (cfg, w) = gdn_fixture();
+        let b = 1usize;
+        let x: Vec<f32> = vec![0.3, -0.2, 0.5, 0.1, -0.4, 0.2, 0.0, 0.7];
+
+        // A fresh state gives one answer.
+        let mut st_fresh = GdnState::new(&cfg, b);
+        let a = forward_with_state(&cfg, &w, &x, b, 1, &mut st_fresh).out_proj;
+
+        // A pre-used state must give a different one, or the state is being ignored.
+        let mut st_used = GdnState::new(&cfg, b);
+        let warm: Vec<f32> = vec![0.9; cfg.hidden];
+        forward_with_state(&cfg, &w, &warm, b, 1, &mut st_used);
+        let b_out = forward_with_state(&cfg, &w, &x, b, 1, &mut st_used).out_proj;
+
+        let differs = a.iter().zip(b_out.iter()).any(|(p, q)| (p - q).abs() > 1e-6);
+        assert!(differs, "the initial state had no effect on the output");
+
+        // And the state must move after the call.
+        let mut st2 = GdnState::new(&cfg, b);
+        let before = st2.conv.clone();
+        let ssm_before = st2.ssm.clone();
+        forward_with_state(&cfg, &w, &x, b, 1, &mut st2);
+        assert_ne!(st2.conv, before, "conv state was not advanced");
+        assert_ne!(st2.ssm, ssm_before, "ssm state was not advanced");
     }
 }

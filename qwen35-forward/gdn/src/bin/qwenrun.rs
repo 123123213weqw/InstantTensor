@@ -50,7 +50,8 @@ fn main() -> ExitCode {
     let Some(dir) = args.iter().skip(1).find(|a| !a.starts_with("--")) else {
         eprintln!(
             "usage: qwenrun <model-dir> [--text STRING | --prompt 1,2,3] [--tokens N]\n\
-             \x20                    [--topk K] [--dump-logits FILE] [--compare FILE]"
+             \x20                    [--topk K] [--cached] [--expect-tokens IDS]\n\
+             \x20                    [--dump-logits FILE] [--compare FILE]"
         );
         return ExitCode::from(2);
     };
@@ -70,6 +71,7 @@ fn main() -> ExitCode {
     // operator mistake produces (a wrong gate or a missing rotation moves logits by
     // ~1e-1, not 1e-5).
     let tol: f32 = val("--tol").and_then(|s| s.parse().ok()).unwrap_or(3e-5);
+    let use_cache = args.iter().any(|a| a == "--cached");
     // A text prompt goes through the tokenizer; a numeric one is used as-is, which is
     // what the reference comparison scripts exchange.
     let text_prompt = val("--text");
@@ -402,43 +404,150 @@ fn main() -> ExitCode {
     // ---- greedy -----------------------------------------------------------
     if steps > 0 {
         println!();
-        println!("   greedy decoding {steps} token(s)");
+        println!(
+            "   greedy decoding {steps} token(s){}",
+            if use_cache { " [cached: prefill once, then one token per step]" } else { " [no cache: whole prefix re-run each step]" }
+        );
         let mut ids = prompt.clone();
         let t2 = std::time::Instant::now();
-        for k in 0..steps {
-            let t = match model::forward(c, &rm.weights, &ids) {
-                Ok(t) => t,
+
+        // Collect the argmax per step first, so the two modes print identically and the
+        // only thing that differs is how the logits were obtained.
+        let mut produced: Vec<u32> = Vec::with_capacity(steps);
+        let mut cache_note = String::new();
+
+        if use_cache {
+            let mut cache = match model::Cache::new(c, &rm.weights, 1) {
+                Ok(x) => x,
                 Err(e) => {
-                    eprintln!("forward failed at step {k}: {e}");
+                    eprintln!("cannot allocate cache: {e}");
                     return ExitCode::FAILURE;
                 }
             };
-            let nxt = t.argmax_last() as u32;
-            ids.push(nxt);
-            match &tokenizer {
-                Some(tk) => println!(
-                    "     step {k:>2}  len={:<4} -> {:>7}  {:?}   ({:.2}s elapsed)",
-                    ids.len() - 1,
-                    nxt,
-                    tk.decode(&[nxt]),
-                    t2.elapsed().as_secs_f64()
-                ),
-                None => println!(
-                    "     step {k:>2}  len={:<4} -> {nxt}   ({:.2}s elapsed)",
-                    ids.len() - 1,
-                    t2.elapsed().as_secs_f64()
-                ),
+            let (lin0, full0) = cache.bytes_by_kind();
+            let (n_lin, n_full) = rm
+                .weights
+                .layers
+                .iter()
+                .fold((0usize, 0usize), |(l, f), w| match w.kind {
+                    model::LayerKind::LinearAttention => (l + 1, f),
+                    model::LayerKind::FullAttention => (l, f + 1),
+                });
+            let per_token = n_full * 2 * c.attn.num_kv_heads * c.attn.head_dim * 4;
+            println!(
+                "     cache at len 0: linear {:.2} MiB across {} layers (constant) + \
+                 full {:.2} MiB across {} layers, growing by {:.1} KiB/token",
+                lin0 as f64 / 1048576.0,
+                n_lin,
+                full0 as f64 / 1048576.0,
+                n_full,
+                per_token as f64 / 1024.0
+            );
+            // Prefill the prompt in one call, then one token at a time.
+            let mut tr = match model::forward_cached(c, &rm.weights, &mut cache, &prompt) {
+                Ok(t) => t,
+                Err(e) => {
+                    eprintln!("prefill failed: {e}");
+                    return ExitCode::FAILURE;
+                }
+            };
+            for k in 0..steps {
+                let nxt = tr.argmax_last() as u32;
+                ids.push(nxt);
+                produced.push(nxt);
+                match &tokenizer {
+                    Some(tk) => println!(
+                        "     step {k:>2}  len={:<4} -> {:>7}  {:?}   ({:.2}s elapsed)",
+                        ids.len() - 1,
+                        nxt,
+                        tk.decode(&[nxt]),
+                        t2.elapsed().as_secs_f64()
+                    ),
+                    None => println!(
+                        "     step {k:>2}  len={:<4} -> {nxt}   ({:.2}s elapsed)",
+                        ids.len() - 1,
+                        t2.elapsed().as_secs_f64()
+                    ),
+                }
+                tr = match model::forward_cached(c, &rm.weights, &mut cache, &[nxt]) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        eprintln!("decode failed at step {k}: {e}");
+                        return ExitCode::FAILURE;
+                    }
+                };
             }
+            let (lin, full) = cache.bytes_by_kind();
+            cache_note = format!(
+                "cache after {} tokens: linear {:.2} MiB (unchanged) + full {:.2} MiB",
+                cache.len,
+                lin as f64 / 1048576.0,
+                full as f64 / 1048576.0
+            );
+        } else {
+            for k in 0..steps {
+                let t = match model::forward(c, &rm.weights, &ids) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        eprintln!("forward failed at step {k}: {e}");
+                        return ExitCode::FAILURE;
+                    }
+                };
+                let nxt = t.argmax_last() as u32;
+                ids.push(nxt);
+                produced.push(nxt);
+                match &tokenizer {
+                    Some(tk) => println!(
+                        "     step {k:>2}  len={:<4} -> {:>7}  {:?}   ({:.2}s elapsed)",
+                        ids.len() - 1,
+                        nxt,
+                        tk.decode(&[nxt]),
+                        t2.elapsed().as_secs_f64()
+                    ),
+                    None => println!(
+                        "     step {k:>2}  len={:<4} -> {nxt}   ({:.2}s elapsed)",
+                        ids.len() - 1,
+                        t2.elapsed().as_secs_f64()
+                    ),
+                }
+            }
+        }
+        if !cache_note.is_empty() {
+            println!("   {cache_note}");
         }
         println!(
             "   generated ids: {}",
-            ids[prompt.len()..].iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",")
+            produced.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(",")
         );
         if let Some(tk) = &tokenizer {
-            println!("   generated text: {:?}", tk.decode(&ids[prompt.len()..]));
+            println!("   generated text: {:?}", tk.decode(&produced));
             println!("   full text:      {:?}", tk.decode(&ids));
         }
+
+        // An expected sequence turns "does caching change the answer" into a check the
+        // tool can fail, which matters because a wrong cache still produces fluent text.
+        if let Some(exp) = val("--expect-tokens") {
+            let want: Vec<u32> = match parse_list(&exp) {
+                Ok(v) => v,
+                Err(e) => {
+                    eprintln!("error: --expect-tokens: {e}");
+                    return ExitCode::from(2);
+                }
+            };
+            let ok = want == produced;
+            println!(
+                "   expected {} token(s): {}",
+                want.len(),
+                if ok { "identical".to_string() } else { "DIFFER".to_string() }
+            );
+            if !ok {
+                println!("     want {want:?}");
+                println!("     got  {produced:?}");
+                failed = true;
+            }
+        }
     }
+
 
     println!();
     if failed {

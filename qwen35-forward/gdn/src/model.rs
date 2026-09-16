@@ -24,9 +24,11 @@
 //! a cache is a later concern: it changes what has to be *stored*, not what has to be
 //! *computed*.
 
-use crate::attention::{self, AttnConfig, AttnWeights};
-use crate::layer::{layer_forward, LayerTrace, LayerWeights, Mixer};
-use crate::{linear, rmsnorm_1plus, GdnConfig, GdnWeights};
+use crate::attention::{self, AttnConfig, AttnState, AttnWeights};
+use crate::layer::{
+    layer_forward, layer_forward_with_state, LayerTrace, LayerWeights, Mixer, MixerState,
+};
+use crate::{linear, rmsnorm_1plus, GdnConfig, GdnState, GdnWeights};
 
 /// Which mixer a layer uses.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -198,6 +200,156 @@ pub fn forward(mcfg: &ModelConfig, w: &ModelWeights, input_ids: &[u32]) -> Resul
     })
 }
 
+/// Everything the stack carries between chunks: one mixer state per layer, plus how many
+/// positions have been processed.
+///
+/// The states in here could hardly be more different from each other -- see
+/// [`crate::GdnState`] and [`AttnState`] -- and that is the design, not an accident:
+/// linear-attention layers keep a fixed-size summary, full-attention layers keep
+/// everything.
+///
+/// [`Cache::len`] is the part that makes decoding *correct* rather than merely fast. It is
+/// the absolute position of the next token, and it is what the rotary tables must be built
+/// from. Building them from 0 instead leaves every tensor shape intact and rotates every
+/// decoded token as though it were the first one.
+#[derive(Debug, Clone)]
+pub struct Cache {
+    /// One entry per layer, in order, each matching its layer's kind.
+    pub states: Vec<MixerState>,
+    /// Positions processed so far.
+    pub len: usize,
+}
+
+impl Cache {
+    /// A zeroed cache, which is what the first chunk of a sequence starts from.
+    pub fn new(mcfg: &ModelConfig, w: &ModelWeights, b: usize) -> Result<Self, String> {
+        let mut states = Vec::with_capacity(w.layers.len());
+        for lw in w.layers.iter() {
+            states.push(match lw.kind {
+                LayerKind::LinearAttention => {
+                    MixerState::LinearAttention(GdnState::new(&mcfg.gdn, b))
+                }
+                LayerKind::FullAttention => MixerState::FullAttention(AttnState::new()),
+            });
+        }
+        Ok(Cache { states, len: 0 })
+    }
+
+    pub fn bytes(&self) -> usize {
+        self.states.iter().map(|s| s.bytes()).sum()
+    }
+
+    /// Bytes split into `(linear, full)`, so the two growth behaviours can be reported
+    /// side by side.
+    pub fn bytes_by_kind(&self) -> (usize, usize) {
+        let (mut lin, mut full) = (0usize, 0usize);
+        for s in &self.states {
+            match s {
+                MixerState::LinearAttention(g) => lin += g.bytes(),
+                MixerState::FullAttention(a) => full += a.bytes(),
+            }
+        }
+        (lin, full)
+    }
+}
+
+/// Run the model on a **new chunk** of tokens, continuing from `cache`.
+///
+/// The first call is prefill: pass the whole prompt and the cache grows to cover it. Every
+/// later call passes a single token. The result equals what [`forward`] would give on the
+/// concatenation, because the state is continued rather than restarted.
+pub fn forward_cached(
+    mcfg: &ModelConfig,
+    w: &ModelWeights,
+    cache: &mut Cache,
+    tokens: &[u32],
+) -> Result<ModelTrace, String> {
+    let t = tokens.len();
+    if t == 0 {
+        return Err("empty chunk".to_string());
+    }
+    let b = 1usize;
+    let rows = b * t;
+    let start = cache.len;
+    if cache.states.len() != w.layers.len() {
+        return Err(format!(
+            "cache holds {} layer states but the model has {} layers",
+            cache.states.len(),
+            w.layers.len()
+        ));
+    }
+
+    let embedding = embed(&w.embed_tokens, tokens, mcfg.vocab, mcfg.hidden)?;
+
+    // The tables start at the chunk's first absolute position, not at zero.
+    let (cos, sin) = attention::build_rope(&mcfg.attn, t, start);
+
+    let mut h = embedding.clone();
+    let mut layer_traces = Vec::with_capacity(w.layers.len());
+    for (i, lw) in w.layers.iter().enumerate() {
+        let mixer = lw.mixer(mcfg).map_err(|e| format!("layer {i}: {e}"))?;
+        let tr = layer_forward_with_state(
+            mixer,
+            &lw.layer,
+            &h,
+            b,
+            t,
+            mcfg.eps,
+            Some((&cos, &sin)),
+            &mut cache.states[i],
+        )
+        .map_err(|e| format!("layer {i}: {e}"))?;
+        h = tr.out.clone();
+        layer_traces.push(tr);
+    }
+    cache.len = start + t;
+
+    let final_norm = rmsnorm_1plus(&w.final_norm, &h, rows, mcfg.hidden, mcfg.eps);
+    let logits = linear(&w.lm_head, None, &final_norm, rows, mcfg.hidden, mcfg.vocab);
+
+    Ok(ModelTrace {
+        embedding,
+        layers: layer_traces,
+        final_norm,
+        logits,
+        t,
+        vocab: mcfg.vocab,
+    })
+}
+
+/// Greedy decoding with a cache: prefill once, then one token per step.
+///
+/// The generated ids must equal [`greedy`]'s. That is checked, not assumed, because a
+/// cache that is subtly wrong still produces fluent text -- the failure mode is a
+/// different continuation, not an error.
+///
+/// Each returned trace covers only the tokens of the call that produced the token, so
+/// `traces[0]` has `t == prompt.len()` (the prefill) and every later one has `t == 1`.
+/// `last_logits` is the last position either way, which is what greedy reads.
+pub fn greedy_cached(
+    mcfg: &ModelConfig,
+    w: &ModelWeights,
+    prompt: &[u32],
+    steps: usize,
+) -> Result<(Vec<u32>, Vec<ModelTrace>), String> {
+    if prompt.is_empty() {
+        return Err("empty prompt".to_string());
+    }
+    let mut cache = Cache::new(mcfg, w, 1)?;
+    // Prefill once.
+    let mut tr = forward_cached(mcfg, w, &mut cache, prompt)?;
+    let mut generated = Vec::with_capacity(steps);
+    let mut traces = Vec::with_capacity(steps);
+    for _ in 0..steps {
+        let nxt = tr.argmax_last() as u32;
+        generated.push(nxt);
+        traces.push(tr);
+        // Decode one token; the cache already holds everything before it.
+        tr = forward_cached(mcfg, w, &mut cache, &[nxt])?;
+    }
+    Ok((generated, traces))
+}
+
 /// Greedy decoding: run, take the argmax of the last position, append, repeat.
 ///
 /// Mirrors the reference's loop exactly, including re-running the full sequence each
@@ -351,6 +503,97 @@ mod tests {
             .map(|(x, y)| (x - y).abs())
             .fold(0f32, f32::max);
         assert!(d2 > 1e-9, "position 2 did not change: {d2}");
+    }
+
+    /// Prefilling with a fresh cache must equal the uncached whole-sequence path, bit for
+    /// bit. This is the strongest statement available: not "close enough", but the same
+    /// arithmetic reached two ways.
+    #[test]
+    fn prefill_equals_the_uncached_path() {
+        let (mcfg, w) = tiny();
+        let prompt = [1u32, 2, 3, 4];
+        let a = forward(&mcfg, &w, &prompt).unwrap();
+        let mut cache = Cache::new(&mcfg, &w, 1).unwrap();
+        let b = forward_cached(&mcfg, &w, &mut cache, &prompt).unwrap();
+        assert_eq!(a.logits.len(), b.logits.len());
+        for i in 0..a.logits.len() {
+            assert_eq!(
+                a.logits[i].to_bits(),
+                b.logits[i].to_bits(),
+                "logit {i}: uncached {} vs prefill {}",
+                a.logits[i],
+                b.logits[i]
+            );
+        }
+        assert_eq!(cache.len, prompt.len());
+    }
+
+    /// Decoding one token at a time with a cache must equal processing the whole growing
+    /// sequence at once. If the rotary tables were built from position 0 instead of the
+    /// absolute position, this is the test that would fail.
+    #[test]
+    fn token_at_a_time_equals_the_whole_sequence() {
+        let (mcfg, w) = tiny();
+        // Ids must stay inside the fixture's vocabulary (6), which is also why this
+        // asserts bit-level closeness rather than exactness: the two paths call `linear`
+        // with different row counts.
+        let seq = [1u32, 2, 3, 4, 5, 0];
+        let whole = forward(&mcfg, &w, &seq).unwrap();
+
+        let mut cache = Cache::new(&mcfg, &w, 1).unwrap();
+        let split = 3usize;
+        let _ = forward_cached(&mcfg, &w, &mut cache, &seq[..split]).unwrap();
+        let mut last = None;
+        for &tok in &seq[split..] {
+            last = Some(forward_cached(&mcfg, &w, &mut cache, &[tok]).unwrap());
+        }
+        let step = last.unwrap();
+        assert_eq!(cache.len, seq.len());
+        // Bit-exact, not "close". Both paths evaluate the same recurrence in the same
+        // order -- `linear` computes each row independently, the convolution and the
+        // delta rule are continued rather than restarted, and `attend` sums over the
+        // same keys in the same order. A tolerance here would hide a cache that drops
+        // part of its contents, because the fixture's attention output is small in
+        // absolute terms; an earlier version of this test used 1e-4 and missed exactly
+        // that bug.
+        let a = whole.last_logits();
+        let b = step.last_logits();
+        for i in 0..a.len() {
+            assert_eq!(
+                a[i].to_bits(),
+                b[i].to_bits(),
+                "logit {i}: whole {} vs incremental {}",
+                a[i],
+                b[i]
+            );
+        }
+    }
+
+    /// Cached greedy must generate the same tokens as uncached greedy.
+    #[test]
+    fn cached_greedy_matches_uncached_greedy() {
+        let (mcfg, w) = tiny();
+        let prompt = [1u32, 2, 3];
+        let (want, want_tr) = greedy(&mcfg, &w, &prompt, 5).unwrap();
+        let (got, got_tr) = greedy_cached(&mcfg, &w, &prompt, 5).unwrap();
+        assert_eq!(got, want, "cached greedy diverged from the uncached path");
+        assert_eq!(got_tr.len(), want_tr.len());
+    }
+
+    /// The cache must exist per layer and in the shape the model needs; a mismatch would
+    /// otherwise be caught only by an index panic somewhere deep.
+    #[test]
+    fn cache_is_allocated_per_layer_and_the_two_kinds_differ() {
+        let (mcfg, w) = tiny();
+        let cache = Cache::new(&mcfg, &w, 1).unwrap();
+        assert_eq!(cache.states.len(), w.layers.len());
+        assert_eq!(cache.len, 0);
+        let (lin, full) = cache.bytes_by_kind();
+        // The fixture has one linear layer and one full layer, and at zero sequence length
+        // the linear state dominates: it is fixed-size, while the KV part starts empty.
+        assert!(lin > 0, "linear state should be allocated up front");
+        assert_eq!(full, 0, "attention state should start empty, not preallocated");
+        assert_eq!(cache.bytes(), lin + full);
     }
 
     #[test]

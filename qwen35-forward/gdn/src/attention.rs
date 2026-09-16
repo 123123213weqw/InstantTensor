@@ -219,9 +219,152 @@ fn softmax_in_place(v: &mut [f32], len: usize) {
     }
 }
 
-/// Run one full-attention layer on an already-normalised input.
+/// Per-layer state the full-attention mixer carries between calls: the keys and values
+/// of every position seen so far.
 ///
-/// `x` is `[B, T, hidden]` (the output of the layer's `input_layernorm`).
+/// This is the cache that **grows**, and the contrast with [`crate::GdnState`] is the
+/// whole reason the architecture is mixed. For `Qwen3.5-0.8B` one layer holds
+/// `num_kv_heads * head_dim * len` values for keys and the same again for values, so at
+/// 2048 tokens that is 8 MiB per layer and 48 MiB across the 6 full-attention layers --
+/// against 19.3 MiB *total* for all 18 linear-attention layers, which never grows.
+#[derive(Debug, Clone, Default)]
+pub struct AttnState {
+    /// `[B, num_kv_heads, len, head_dim]`, post-rope.
+    pub k: Vec<f32>,
+    /// `[B, num_kv_heads, len, head_dim]`
+    pub v: Vec<f32>,
+    /// Positions cached. The next chunk starts here.
+    pub len: usize,
+}
+
+impl AttnState {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn bytes(&self) -> usize {
+        (self.k.len() + self.v.len()) * std::mem::size_of::<f32>()
+    }
+}
+
+/// `[B, T, H, D]` -> `[B, H, T, D]`.
+fn to_bhtd(src: &[f32], b: usize, t: usize, heads: usize, d: usize) -> Vec<f32> {
+    let mut out = vec![0f32; b * heads * t * d];
+    for bi in 0..b {
+        for ti in 0..t {
+            for hh in 0..heads {
+                let s = ((bi * t + ti) * heads + hh) * d;
+                let dst = ((bi * heads + hh) * t + ti) * d;
+                out[dst..dst + d].copy_from_slice(&src[s..s + d]);
+            }
+        }
+    }
+    out
+}
+
+/// Append a chunk's keys and values to the state, growing the cached length.
+///
+/// The layout is `[B, kv_heads, len, D]` so that a query's key range is contiguous. That
+/// makes each step an `O(len)` copy, which is the price of the layout; the reference pays
+/// the same one when it concatenates along the sequence axis.
+fn append_kv(
+    st: &mut AttnState,
+    k_rot: &[f32],
+    v_flat: &[f32],
+    b: usize,
+    t: usize,
+    kvh: usize,
+    d: usize,
+) {
+    let start = st.len;
+    let total = start + t;
+    let mut nk = vec![0f32; b * kvh * total * d];
+    let mut nv = vec![0f32; b * kvh * total * d];
+    for bi in 0..b {
+        for hh in 0..kvh {
+            let old = ((bi * kvh + hh) * start) * d;
+            let dst = ((bi * kvh + hh) * total) * d;
+            if start > 0 {
+                nk[dst..dst + start * d].copy_from_slice(&st.k[old..old + start * d]);
+                nv[dst..dst + start * d].copy_from_slice(&st.v[old..old + start * d]);
+            }
+            for ti in 0..t {
+                // Both `k_rot` and `v_flat` are `[B, T, kv_heads, D]`.
+                let s = ((bi * t + ti) * kvh + hh) * d;
+                let dd = dst + (start + ti) * d;
+                nk[dd..dd + d].copy_from_slice(&k_rot[s..s + d]);
+                nv[dd..dd + d].copy_from_slice(&v_flat[s..s + d]);
+            }
+        }
+    }
+    st.k = nk;
+    st.v = nv;
+    st.len = total;
+}
+
+/// Causal attention for a chunk, over keys and values covering every position up to and
+/// including it.
+///
+/// `start` is how many positions preceded the chunk, so chunk position `ti` is absolute
+/// position `start + ti` and attends to keys `0..=start+ti`. With `start == 0` and keys
+/// holding only the chunk this is ordinary causal attention; with a cache it is the same
+/// loop reading a longer key range, and **no mask is needed for the cached part** because
+/// everything already in the cache is in the past.
+///
+/// Grouped-query attention is done by *indexing* -- output head `h` reads kv head
+/// `h / groups` -- rather than by materialising `repeat_kv` into `[B, num_heads, T, D]`.
+/// The mappings are identical, and a test pins the convention.
+#[allow(clippy::too_many_arguments)]
+fn attend(
+    q: &[f32],
+    keys: &[f32],
+    values: &[f32],
+    b: usize,
+    t: usize,
+    start: usize,
+    h: usize,
+    kvh: usize,
+    d: usize,
+    scaling: f32,
+) -> Vec<f32> {
+    let groups = h / kvh;
+    let total = start + t;
+    let mut out = vec![0f32; b * h * t * d];
+    let mut scores = vec![0f32; total];
+    for bi in 0..b {
+        for hh in 0..h {
+            let kv = hh / groups;
+            let kb = ((bi * kvh + kv) * total) * d;
+            for ti in 0..t {
+                let p = start + ti; // absolute position of this query
+                let qrow = ((bi * t + ti) * h + hh) * d;
+                for (tj, sc) in scores.iter_mut().enumerate().take(p + 1) {
+                    let krow = kb + tj * d;
+                    let mut acc = 0f32;
+                    for i in 0..d {
+                        acc += q[qrow + i] * keys[krow + i];
+                    }
+                    *sc = acc * scaling;
+                }
+                softmax_in_place(&mut scores[..p + 1], p + 1);
+                let orow = ((bi * h + hh) * t + ti) * d;
+                for i in 0..d {
+                    let mut acc = 0f32;
+                    for tj in 0..=p {
+                        acc += scores[tj] * values[kb + tj * d + i];
+                    }
+                    out[orow + i] = acc;
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Run one full-attention layer on an already-normalised input, with no prior state.
+///
+/// `x` is `[B, T, hidden]`, the output of the layer's `input_layernorm`. `cos`/`sin` are
+/// `[T, rotary_dim]` for positions `0..T`.
 pub fn forward(
     cfg: &AttnConfig,
     w: &AttnWeights,
@@ -231,10 +374,45 @@ pub fn forward(
     cos: &[f32],
     sin: &[f32],
 ) -> AttnTrace {
+    forward_impl(cfg, w, x, b, t, cos, sin, None)
+}
+
+/// Run one full-attention layer continuing from `state`, which is advanced in place.
+///
+/// `cos`/`sin` must cover the **absolute** positions of this chunk, i.e. be built with
+/// `build_rope(cfg, t, state.len)`. Passing tables built from position 0 would rotate
+/// every decoded token as if it were the first one, which is wrong in a way that leaves
+/// all shapes intact and only shows up in the values.
+#[allow(clippy::too_many_arguments)]
+pub fn forward_with_state(
+    cfg: &AttnConfig,
+    w: &AttnWeights,
+    x: &[f32],
+    b: usize,
+    t: usize,
+    cos: &[f32],
+    sin: &[f32],
+    state: &mut AttnState,
+) -> AttnTrace {
+    forward_impl(cfg, w, x, b, t, cos, sin, Some(state))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn forward_impl(
+    cfg: &AttnConfig,
+    w: &AttnWeights,
+    x: &[f32],
+    b: usize,
+    t: usize,
+    cos: &[f32],
+    sin: &[f32],
+    state: Option<&mut AttnState>,
+) -> AttnTrace {
     let rows = b * t;
     let h = cfg.num_heads;
     let kvh = cfg.num_kv_heads;
     let d = cfg.head_dim;
+    assert_eq!(x.len(), rows * cfg.hidden, "attention input size");
 
     // 1. projections
     let q_flat = linear(&w.q_proj, None, x, rows, cfg.hidden, cfg.q_out_dim()); // [rows, H*2D]
@@ -260,80 +438,28 @@ pub fn forward(
     let q_normed = rmsnorm_1plus(&w.q_norm, &q, rows * h, d, cfg.eps);
     let k_normed = rmsnorm_1plus(&w.k_norm, &k_flat, rows * kvh, d, cfg.eps);
 
-    // 4. rope on the first rotary_dim dims. q_normed/k_normed are [rows*heads, d]
-    //    with row index r*heads + head, so `row % t` gives the position.
+    // 4. rope on the first rotary_dim dims. Row `r` of these is `(b*T + t)*heads + h`,
+    //    so the position is `(r / heads) % t`, and `t` indexes the tables passed in --
+    //    which for a cached step are built starting at the absolute position.
     let q_rot = apply_rope(&q_normed, rows * h, h, d, cos, sin, t, cfg.rotary_dim);
     let k_rot = apply_rope(&k_normed, rows * kvh, kvh, d, cos, sin, t, cfg.rotary_dim);
 
-    // 5. to [B, H, T, D] for the contraction.
-    let to_bhtd = |src: &[f32], heads: usize| -> Vec<f32> {
-        let mut out = vec![0f32; b * heads * t * d];
-        for bi in 0..b {
-            for ti in 0..t {
-                for hh in 0..heads {
-                    let s = ((bi * t + ti) * heads + hh) * d;
-                    let dst = ((bi * heads + hh) * t + ti) * d;
-                    out[dst..dst + d].copy_from_slice(&src[s..s + d]);
-                }
-            }
-        }
-        out
-    };
-    let q_bhtd = to_bhtd(&q_rot, h);
-    let k_bhtd = to_bhtd(&k_rot, kvh);
-    let v_bhtd = to_bhtd(&v_flat, kvh);
-
-    // 6. GQA: repeat each kv head `kv_groups` times, consecutively. This is
-    //    `repeat_kv`, which expands+reshapes and so matches repeat_interleave.
-    let groups = cfg.kv_groups();
-    let mut k_full = vec![0f32; b * h * t * d];
-    let mut v_full = vec![0f32; b * h * t * d];
-    for bi in 0..b {
-        for g in 0..groups {
-            for hh in 0..kvh {
-                let dst_head = hh * groups + g;
-                let src = ((bi * kvh + hh) * t) * d;
-                let dst = ((bi * h + dst_head) * t) * d;
-                k_full[dst..dst + t * d].copy_from_slice(&k_bhtd[src..src + t * d]);
-                v_full[dst..dst + t * d].copy_from_slice(&v_bhtd[src..src + t * d]);
-            }
-        }
-    }
-
-    // 7. scores, causal mask, softmax, then the value contraction.
+    // 5. attention, over the chunk alone or over the chunk appended to the cache.
     let scaling = cfg.scaling();
-    let mut out_bhtd = vec![0f32; b * h * t * d];
-    for bi in 0..b {
-        for hh in 0..h {
-            let qb = ((bi * h + hh) * t) * d;
-            let kb = ((bi * h + hh) * t) * d;
-            for ti in 0..t {
-                // scores over all keys, masked to keys <= ti
-                let mut scores = vec![f32::NEG_INFINITY; t];
-                let qr = qb + ti * d;
-                for (tj, sc) in scores.iter_mut().enumerate().take(ti + 1) {
-                    let kr = kb + tj * d;
-                    let mut acc = 0f32;
-                    for i in 0..d {
-                        acc += q_bhtd[qr + i] * k_full[kr + i];
-                    }
-                    *sc = acc * scaling;
-                }
-                softmax_in_place(&mut scores, t);
-                // a masked key has weight exactly 0, so it contributes nothing
-                let orow = qb + ti * d;
-                for i in 0..d {
-                    let mut acc = 0f32;
-                    for tj in 0..=ti {
-                        acc += scores[tj] * v_full[kb + tj * d + i];
-                    }
-                    out_bhtd[orow + i] = acc;
-                }
-            }
+    let out_bhtd = match state {
+        Some(st) => {
+            let start = st.len;
+            append_kv(st, &k_rot, &v_flat, b, t, kvh, d);
+            attend(&q_rot, &st.k, &st.v, b, t, start, h, kvh, d, scaling)
         }
-    }
+        None => {
+            let keys = to_bhtd(&k_rot, b, t, kvh, d);
+            let values = to_bhtd(&v_flat, b, t, kvh, d);
+            attend(&q_rot, &keys, &values, b, t, 0, h, kvh, d, scaling)
+        }
+    };
 
-    // 8. back to [B, T, H*D]
+    // 6. back to [B, T, H*D]
     let mut attn_out = vec![0f32; rows * h * d];
     for bi in 0..b {
         for hh in 0..h {
@@ -345,14 +471,14 @@ pub fn forward(
         }
     }
 
-    // 9. the output gate: sigmoid, per the source (the config says "swish").
+    // 7. the output gate: sigmoid, per the source (the config says "swish").
     let mut gated = vec![0f32; rows * h * d];
     for i in 0..gated.len() {
         let g = gate[i];
         gated[i] = attn_out[i] * (1.0 / (1.0 + (-g).exp()));
     }
 
-    // 10. o_proj
+    // 8. o_proj
     let o = linear(&w.o_proj, None, &gated, rows, h * d, cfg.hidden);
 
     AttnTrace {

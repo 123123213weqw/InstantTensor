@@ -572,7 +572,22 @@ fn main() -> ExitCode {
 
         // ---- greedy -------------------------------------------------------
         let steps = b.manifest.greedy.steps.len();
-        let (gen, traces) = match model::greedy(&mcfg, &mw, &prompt, steps) {
+        let use_cache = args.iter().any(|a| a == "--cached");
+        if use_cache {
+            if let Ok(cz) = model::Cache::new(&mcfg, &mw, 1) {
+                let (lin, full) = cz.bytes_by_kind();
+                println!(
+                    "   cache: linear {:.2} MiB (constant) + full {:.2} MiB at len 0",
+                    lin as f64 / 1048576.0,
+                    full as f64 / 1048576.0
+                );
+            }
+        }
+        let (gen, traces) = match if use_cache {
+            model::greedy_cached(&mcfg, &mw, &prompt, steps)
+        } else {
+            model::greedy(&mcfg, &mw, &prompt, steps)
+        } {
             Ok(g) => g,
             Err(e) => {
                 eprintln!("greedy failed: {e}");
@@ -580,7 +595,10 @@ fn main() -> ExitCode {
             }
         };
         println!();
-        println!("   greedy trace ({steps} steps)");
+        println!(
+            "   greedy trace ({steps} steps, {})",
+            if use_cache { "cached" } else { "uncached" }
+        );
         let mut token_ok = 0usize;
         let mut worst_logit = 0f32;
         for (k, st) in b.manifest.greedy.steps.iter().enumerate() {
